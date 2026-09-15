@@ -1,0 +1,86 @@
+from typing import List
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, delete
+from backend.app.database import get_db
+from backend.app.models import WatchedProfile, MediaItem
+from backend.app.schemas import WatchedProfileCreate, WatchedProfileResponse, MediaItemResponse
+from backend.app.services.scraper import InstagramScraperEngine
+
+router = APIRouter(prefix="/profiles", tags=["Profiles"])
+
+@router.get("", response_model=List[WatchedProfileResponse])
+async def list_watched_profiles(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(WatchedProfile).order_by(WatchedProfile.created_at.desc()))
+    return result.scalars().all()
+
+@router.post("", response_model=WatchedProfileResponse)
+async def add_watched_profile(data: WatchedProfileCreate, db: AsyncSession = Depends(get_db)):
+    username = data.username.lstrip("@").strip()
+    result = await db.execute(select(WatchedProfile).where(WatchedProfile.username == username))
+    existing = result.scalars().first()
+    if existing:
+        return existing
+
+    # Fetch profile metadata from Instagram scraper engine
+    scraper = InstagramScraperEngine()
+    profile_info = await scraper.get_user_profile(username)
+    
+    new_profile = WatchedProfile(
+        username=username,
+        ig_user_id=profile_info.get("ig_user_id") if profile_info else data.ig_user_id,
+        full_name=profile_info.get("full_name") if profile_info else data.full_name,
+        profile_pic_url=profile_info.get("profile_pic_url") if profile_info else data.profile_pic_url,
+        is_unfollowed_track=data.is_unfollowed_track,
+        auto_sync_enabled=data.auto_sync_enabled,
+        sync_interval_hours=data.sync_interval_hours
+    )
+    db.add(new_profile)
+    await db.commit()
+    await db.refresh(new_profile)
+    return new_profile
+
+@router.delete("/{username}")
+async def remove_watched_profile(username: str, db: AsyncSession = Depends(get_db)):
+    username = username.lstrip("@").strip()
+    result = await db.execute(select(WatchedProfile).where(WatchedProfile.username == username))
+    profile = result.scalars().first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    await db.delete(profile)
+    await db.commit()
+    return {"message": f"Profile @{username} removed from watched accounts"}
+
+@router.get("/{username}/media", response_model=List[MediaItemResponse])
+async def fetch_user_media(username: str, limit: int = Query(20, ge=1, le=100), db: AsyncSession = Depends(get_db)):
+    username = username.lstrip("@").strip()
+    scraper = InstagramScraperEngine()
+    posts_data = await scraper.get_user_posts(username, limit=limit)
+    
+    response_items = []
+    for item in posts_data:
+        # Check DB if already exists
+        result = await db.execute(select(MediaItem).where(MediaItem.post_id == item["post_id"]))
+        existing = result.scalars().first()
+        if not existing:
+            new_item = MediaItem(
+                post_id=item["post_id"],
+                shortcode=item["shortcode"],
+                username=item["username"],
+                media_type=item["media_type"],
+                display_url=item["display_url"],
+                thumbnail_url=item["thumbnail_url"],
+                video_url=item.get("video_url"),
+                caption=item.get("caption"),
+                likes_count=item.get("likes_count", 0),
+                comments_count=item.get("comments_count", 0),
+                taken_at=item.get("taken_at")
+            )
+            db.add(new_item)
+            await db.commit()
+            await db.refresh(new_item)
+            response_items.append(new_item)
+        else:
+            response_items.append(existing)
+            
+    return response_items
