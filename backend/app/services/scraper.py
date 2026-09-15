@@ -143,6 +143,55 @@ class InstagramScraperEngine:
         # Demo fallback generator for offline testing & smooth UI preview
         return self._generate_demo_posts(username, limit)
 
+    async def get_followed_accounts(self, username: str) -> List[Dict[str, Any]]:
+        """Fetch accounts followed by the logged-in user."""
+        rate_tracker.record_request()
+        await self._async_delay()
+
+        followed = []
+        if self.session_cookie:
+            # Try fetching user profile first to obtain ig_user_id
+            prof = await self.get_user_profile(username)
+            user_id = prof.get("ig_user_id") if prof else None
+            if user_id and not user_id.startswith("dummy_"):
+                url = f"https://www.instagram.com/api/v1/friendships/{user_id}/following/?count=50"
+                async with httpx.AsyncClient(headers=self.headers, follow_redirects=True, timeout=15.0) as client:
+                    try:
+                        res = await client.get(url)
+                        if res.status_code == 200:
+                            data = res.json()
+                            users = data.get("users", [])
+                            for u in users:
+                                followed.append({
+                                    "username": u.get("username"),
+                                    "ig_user_id": str(u.get("pk") or u.get("id")),
+                                    "full_name": u.get("full_name"),
+                                    "profile_pic_url": u.get("profile_pic_url"),
+                                    "is_unfollowed_track": False
+                                })
+                            if followed:
+                                return followed
+                    except Exception as e:
+                        logger.error(f"Error fetching followed accounts for {username}: {e}")
+
+        # Demo fallback followed accounts for offline testing / UI demonstration
+        demo_accounts = [
+            {"username": "tech_insider", "full_name": "Tech Insider & Dev", "profile_pic_url": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80"},
+            {"username": "travel_vibes", "full_name": "Travel & Wanderlust", "profile_pic_url": "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=200&q=80"},
+            {"username": "food_explorer", "full_name": "Food Explorer & Recipes", "profile_pic_url": "https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?auto=format&fit=crop&w=200&q=80"},
+            {"username": "design_daily", "full_name": "UI/UX Creative Design", "profile_pic_url": "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=200&q=80"},
+            {"username": "fitness_journal", "full_name": "Fitness & Health Routine", "profile_pic_url": "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=200&q=80"},
+        ]
+        for acc in demo_accounts:
+            followed.append({
+                "username": acc["username"],
+                "ig_user_id": f"id_{acc['username']}",
+                "full_name": acc["full_name"],
+                "profile_pic_url": acc["profile_pic_url"],
+                "is_unfollowed_track": False
+            })
+        return followed
+
     def _generate_demo_posts(self, username: str, limit: int = 10) -> List[Dict[str, Any]]:
         sample_photos = [
             ("https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=80", "IMAGE", "Sunset views on the coast 🌅 #travel #beach"),
@@ -168,3 +217,4 @@ class InstagramScraperEngine:
                 "taken_at": datetime.datetime.utcnow() - datetime.timedelta(days=i),
             })
         return demo_posts
+

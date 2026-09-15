@@ -1,7 +1,7 @@
 import React from 'react'
 import { LayoutDashboard, Users, Eye, Download, ListOrdered, Settings, ShieldCheck } from 'lucide-react'
 
-export default function Sidebar({ activeTab, setActiveTab, onOpenAddProfileModal }) {
+export default function Sidebar({ activeTab, setActiveTab, onOpenAddProfileModal, userSession }) {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'watched', label: 'Tracked Accounts', icon: Eye, badge: 'Unfollowed' },
@@ -10,6 +10,9 @@ export default function Sidebar({ activeTab, setActiveTab, onOpenAddProfileModal
     { id: 'queue', label: 'Tasks Queue', icon: ListOrdered },
     { id: 'settings', label: 'Settings', icon: Settings },
   ]
+
+  const initial = userSession?.username ? userSession.username[0].toUpperCase() : 'A'
+  const displayName = userSession?.username ? `@${userSession.username}` : 'Local Admin'
 
   return (
     <aside className="sidebar">
@@ -44,9 +47,9 @@ export default function Sidebar({ activeTab, setActiveTab, onOpenAddProfileModal
       </nav>
 
       <div className="user-status-card">
-        <div className="user-avatar">A</div>
+        <div className="user-avatar">{initial}</div>
         <div className="user-info">
-          <span className="user-name">Local Admin</span>
+          <span className="user-name">{displayName}</span>
           <span className="user-role" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
             <ShieldCheck size={12} /> Fedora Active
           </span>
@@ -55,3 +58,4 @@ export default function Sidebar({ activeTab, setActiveTab, onOpenAddProfileModal
     </aside>
   )
 }
+

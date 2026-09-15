@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from backend.app.database import get_db
-from backend.app.models import WatchedProfile, MediaItem
+from backend.app.models import WatchedProfile, MediaItem, UserSession
 from backend.app.schemas import WatchedProfileCreate, WatchedProfileResponse, MediaItemResponse
 from backend.app.services.scraper import InstagramScraperEngine
 
@@ -13,6 +13,55 @@ router = APIRouter(prefix="/profiles", tags=["Profiles"])
 async def list_watched_profiles(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(WatchedProfile).order_by(WatchedProfile.created_at.desc()))
     return result.scalars().all()
+
+@router.get("/followed", response_model=List[WatchedProfileResponse])
+async def list_followed_profiles(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(WatchedProfile)
+        .where(WatchedProfile.is_unfollowed_track == False)
+        .order_by(WatchedProfile.username.asc())
+    )
+    return result.scalars().all()
+
+@router.post("/sync-following", response_model=List[WatchedProfileResponse])
+async def sync_followed_accounts(db: AsyncSession = Depends(get_db)):
+    # Fetch active user session
+    res = await db.execute(select(UserSession).where(UserSession.is_active == True))
+    session = res.scalars().first()
+    cookie = session.session_cookie if session else None
+    username = session.username if session else "admin"
+
+    scraper = InstagramScraperEngine(session_cookie=cookie)
+    followed_list = await scraper.get_followed_accounts(username)
+
+    imported_profiles = []
+    for item in followed_list:
+        acc_handle = item["username"]
+        q = await db.execute(select(WatchedProfile).where(WatchedProfile.username == acc_handle))
+        existing = q.scalars().first()
+        if not existing:
+            new_p = WatchedProfile(
+                username=acc_handle,
+                ig_user_id=item.get("ig_user_id"),
+                full_name=item.get("full_name"),
+                profile_pic_url=item.get("profile_pic_url"),
+                is_unfollowed_track=False
+            )
+            db.add(new_p)
+            await db.commit()
+            await db.refresh(new_p)
+            imported_profiles.append(new_p)
+        else:
+            existing.is_unfollowed_track = False
+            if item.get("full_name"):
+                existing.full_name = item.get("full_name")
+            if item.get("profile_pic_url"):
+                existing.profile_pic_url = item.get("profile_pic_url")
+            await db.commit()
+            await db.refresh(existing)
+            imported_profiles.append(existing)
+
+    return imported_profiles
 
 @router.post("", response_model=WatchedProfileResponse)
 async def add_watched_profile(data: WatchedProfileCreate, db: AsyncSession = Depends(get_db)):

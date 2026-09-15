@@ -3,7 +3,7 @@ import Sidebar from './components/Sidebar'
 import Header from './components/Header'
 import MediaCard from './components/MediaCard'
 import WatchedProfilesModal from './components/WatchedProfilesModal'
-import { Download, RefreshCw, Layers, CheckCircle2, Shield, Eye, Settings as SettingsIcon } from 'lucide-react'
+import { Download, RefreshCw, Layers, CheckCircle2, Shield, Eye, Users, UserCheck, Key, Settings as SettingsIcon } from 'lucide-react'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
@@ -11,10 +11,14 @@ export default function App() {
   const [contentType, setContentType] = useState('ALL')
   const [mediaItems, setMediaItems] = useState([])
   const [watchedProfiles, setWatchedProfiles] = useState([])
+  const [followedProfiles, setFollowedProfiles] = useState([])
+  const [userSession, setUserSession] = useState(null)
   const [rateLimitStatus, setRateLimitStatus] = useState(null)
   const [isTrackModalOpen, setIsTrackModalOpen] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [syncingFollowed, setSyncingFollowed] = useState(false)
   const [selectedUserFilter, setSelectedUserFilter] = useState(null)
+  const [sessionInput, setSessionInput] = useState('')
 
   // Fetch Feed Media
   const fetchFeed = async () => {
@@ -36,7 +40,7 @@ export default function App() {
     }
   }
 
-  // Fetch Tracked Profiles
+  // Fetch Tracked Profiles & Followed Profiles
   const fetchProfiles = async () => {
     try {
       const res = await fetch('/api/v1/profiles')
@@ -44,8 +48,27 @@ export default function App() {
         const data = await res.json()
         setWatchedProfiles(data)
       }
+      const fRes = await fetch('/api/v1/profiles/followed')
+      if (fRes.ok) {
+        const fData = await fRes.json()
+        setFollowedProfiles(fData)
+      }
     } catch (err) {
       console.error('Error fetching profiles:', err)
+    }
+  }
+
+  // Fetch User Session
+  const fetchUserSession = async () => {
+    try {
+      const res = await fetch('/api/v1/auth/session')
+      if (res.ok) {
+        const data = await res.json()
+        setUserSession(data)
+        setSessionInput(data.session_cookie || '')
+      }
+    } catch (err) {
+      console.error('Error fetching user session:', err)
     }
   }
 
@@ -65,6 +88,7 @@ export default function App() {
   useEffect(() => {
     fetchFeed()
     fetchProfiles()
+    fetchUserSession()
     fetchRateLimit()
     const interval = setInterval(fetchRateLimit, 30000)
     return () => clearInterval(interval)
@@ -75,6 +99,19 @@ export default function App() {
     await fetchFeed()
     await fetchRateLimit()
     setSyncing(false)
+  }
+
+  const handleSyncFollowed = async () => {
+    setSyncingFollowed(true)
+    try {
+      const res = await fetch('/api/v1/profiles/sync-following', { method: 'POST' })
+      if (res.ok) {
+        await fetchProfiles()
+      }
+    } catch (err) {
+      console.error('Error syncing followed accounts:', err)
+    }
+    setSyncingFollowed(false)
   }
 
   const handleSaveMedia = async (postId) => {
@@ -99,7 +136,6 @@ export default function App() {
       })
       if (res.ok) {
         await fetchProfiles()
-        // Automatically fetch posts for newly added profile
         await fetch(`/api/v1/profiles/${username}/media`)
         setSelectedUserFilter(username)
         fetchFeed()
@@ -122,6 +158,28 @@ export default function App() {
     }
   }
 
+  const handleSaveSession = async (e) => {
+    e.preventDefault()
+    try {
+      const res = await fetch('/api/v1/auth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: userSession?.username || 'admin',
+          session_cookie: sessionInput
+        })
+      })
+      if (res.ok) {
+        await fetchUserSession()
+      }
+    } catch (err) {
+      console.error('Error saving session cookie:', err)
+    }
+  }
+
+  const trackedUnfollowedList = watchedProfiles.filter((p) => p.is_unfollowed_track)
+  const displayFollowedList = followedProfiles.length > 0 ? followedProfiles : watchedProfiles.filter((p) => !p.is_unfollowed_track)
+
   return (
     <div className="app-container">
       <Sidebar
@@ -131,6 +189,7 @@ export default function App() {
           if (tab !== 'dashboard') setSelectedUserFilter(null)
         }}
         onOpenAddProfileModal={() => setIsTrackModalOpen(true)}
+        userSession={userSession}
       />
 
       <main className="main-content">
@@ -176,48 +235,144 @@ export default function App() {
             </div>
           )}
 
+          {activeTab === 'followed' && (
+            <div>
+              {/* User Session Banner */}
+              <div className="modal-card" style={{ marginBottom: '24px', background: 'var(--card-bg)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{
+                      width: '44px',
+                      height: '44px',
+                      borderRadius: '50%',
+                      background: 'linear-gradient(135deg, var(--accent-purple), var(--accent-pink))',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#fff',
+                      fontWeight: '700',
+                      fontSize: '1.2rem'
+                    }}>
+                      {userSession?.username ? userSession.username[0].toUpperCase() : 'U'}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: '700', fontSize: '1.1rem' }}>
+                        User Details: @{userSession?.username || 'admin'}
+                      </div>
+                      <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                        <UserCheck size={14} className="text-green-400" /> Session Active & Verified
+                        <span style={{ color: 'var(--border-color)' }}>•</span>
+                        <span>{displayFollowedList.length} Followed Accounts Linked</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    className="btn-primary"
+                    onClick={handleSyncFollowed}
+                    disabled={syncingFollowed}
+                  >
+                    <RefreshCw size={16} className={syncingFollowed ? 'animate-spin' : ''} />
+                    <span>{syncingFollowed ? 'Syncing...' : 'Sync Followed Accounts'}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h2>Your Followed Instagram Accounts ({displayFollowedList.length})</h2>
+              </div>
+
+              <div className="profiles-list">
+                {displayFollowedList.length === 0 ? (
+                  <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', textAlign: 'center', padding: '30px' }}>
+                    No followed accounts imported yet. Click "Sync Followed Accounts" above to import your followed profiles.
+                  </p>
+                ) : (
+                  displayFollowedList.map((p) => (
+                    <div key={p.id || p.username} className="profile-item-row">
+                      <div className="profile-user-group">
+                        <img
+                          src={p.profile_pic_url || `https://ui-avatars.com/api/?name=${p.username}`}
+                          alt={p.username}
+                          style={{ width: '40px', height: '40px', borderRadius: '50%' }}
+                        />
+                        <div>
+                          <div style={{ fontWeight: '600', fontSize: '0.95rem' }}>@{p.username}</div>
+                          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                            {p.full_name || 'Instagram Followed Account'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '10px' }}>
+                        <button
+                          className="btn-primary"
+                          onClick={() => {
+                            setSelectedUserFilter(p.username)
+                            setActiveTab('dashboard')
+                          }}
+                        >
+                          Browse Media
+                        </button>
+                        <button className="btn-secondary" onClick={() => handleRemoveProfile(p.username)}>
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
           {activeTab === 'watched' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <h2>Tracked Unfollowed Profiles</h2>
+                <h2>Tracked Unfollowed Profiles ({trackedUnfollowedList.length})</h2>
                 <button className="btn-primary" onClick={() => setIsTrackModalOpen(true)}>
                   <Eye size={16} /> Track New Profile
                 </button>
               </div>
 
               <div className="profiles-list">
-                {watchedProfiles.map((p) => (
-                  <div key={p.id} className="profile-item-row">
-                    <div className="profile-user-group">
-                      <img
-                        src={p.profile_pic_url || `https://ui-avatars.com/api/?name=${p.username}`}
-                        alt={p.username}
-                        style={{ width: '40px', height: '40px', borderRadius: '50%' }}
-                      />
-                      <div>
-                        <div style={{ fontWeight: '600', fontSize: '0.95rem' }}>@{p.username}</div>
-                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                          {p.is_unfollowed_track ? 'Unfollowed Account (Tracked)' : 'Followed Account'}
+                {trackedUnfollowedList.length === 0 ? (
+                  <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', textAlign: 'center', padding: '30px' }}>
+                    No custom tracked unfollowed profiles yet.
+                  </p>
+                ) : (
+                  trackedUnfollowedList.map((p) => (
+                    <div key={p.id} className="profile-item-row">
+                      <div className="profile-user-group">
+                        <img
+                          src={p.profile_pic_url || `https://ui-avatars.com/api/?name=${p.username}`}
+                          alt={p.username}
+                          style={{ width: '40px', height: '40px', borderRadius: '50%' }}
+                        />
+                        <div>
+                          <div style={{ fontWeight: '600', fontSize: '0.95rem' }}>@{p.username}</div>
+                          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                            Unfollowed Account (Tracked)
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                      <button
-                        className="btn-primary"
-                        onClick={() => {
-                          setSelectedUserFilter(p.username)
-                          setActiveTab('dashboard')
-                        }}
-                      >
-                        Browse Media
-                      </button>
-                      <button className="btn-secondary" onClick={() => handleRemoveProfile(p.username)}>
-                        Remove
-                      </button>
+                      <div style={{ display: 'flex', gap: '10px' }}>
+                        <button
+                          className="btn-primary"
+                          onClick={() => {
+                            setSelectedUserFilter(p.username)
+                            setActiveTab('dashboard')
+                          }}
+                        >
+                          Browse Media
+                        </button>
+                        <button className="btn-secondary" onClick={() => handleRemoveProfile(p.username)}>
+                          Remove
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           )}
@@ -234,7 +389,32 @@ export default function App() {
           {activeTab === 'settings' && (
             <div>
               <h2 style={{ marginBottom: '20px' }}>Application Settings</h2>
-              <div className="modal-card" style={{ maxWidth: '600px' }}>
+
+              <div className="modal-card" style={{ maxWidth: '650px', marginBottom: '24px' }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Key size={18} className="text-purple-400" /> User Session Credentials
+                </h3>
+                <form onSubmit={handleSaveSession}>
+                  <label style={{ display: 'block', fontWeight: '600', marginBottom: '6px', fontSize: '0.85rem' }}>
+                    Instagram Session Cookie (`sessionid`)
+                  </label>
+                  <input
+                    className="input-field"
+                    type="password"
+                    placeholder="Paste your Instagram sessionid cookie string here..."
+                    value={sessionInput}
+                    onChange={(e) => setSessionInput(e.target.value)}
+                  />
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                    Required for accessing private profile media, custom followed account feeds, and high-rate requests.
+                  </p>
+                  <button type="submit" className="btn-primary">
+                    Save Session Cookie
+                  </button>
+                </form>
+              </div>
+
+              <div className="modal-card" style={{ maxWidth: '650px' }}>
                 <label style={{ display: 'block', fontWeight: '600', marginBottom: '6px' }}>Media Download Location</label>
                 <input className="input-field" defaultValue="/home/psychlone/Downloads/InstaSave" readOnly />
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
@@ -267,3 +447,4 @@ export default function App() {
     </div>
   )
 }
+
