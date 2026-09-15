@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg-grad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f09433"/>
+      <stop offset="25%" stop-color="#e6683c"/>
+      <stop offset="50%" stop-color="#dc2743"/>
+      <stop offset="75%" stop-color="#cc2366"/>
+      <stop offset="100%" stop-color="#bc1888"/>
+    </linearGradient>
+    <linearGradient id="badge-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38ef7d"/>
+      <stop offset="100%" stop-color="#11998e"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Background Card -->
+  <rect x="32" y="32" width="448" height="448" rx="100" fill="url(#bg-grad)" filter="url(#shadow)"/>
+
+  <!-- Inner Camera Ring -->
+  <rect x="112" y="112" width="288" height="288" rx="72" fill="none" stroke="#ffffff" stroke-width="28"/>
+
+  <!-- Lens Circle -->
+  <circle cx="256" cy="256" r="72" fill="none" stroke="#ffffff" stroke-width="28"/>
+
+  <!-- Flash Dot -->
+  <circle cx="340" cy="172" r="16" fill="#ffffff"/>
+
+  <!-- Save / Download Ribbon Badge -->
+  <g filter="url(#shadow)">
+    <path d="M 330 260 L 410 260 C 421 260 430 269 430 280 L 430 430 L 370 380 L 310 430 L 310 280 C 310 269 319 260 330 260 Z" fill="url(#badge-grad)"/>
+    <!-- Down Arrow in Ribbon -->
+    <path d="M 370 290 L 370 340 M 350 325 L 370 345 L 390 325" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

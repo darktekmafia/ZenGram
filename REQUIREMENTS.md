@@ -44,8 +44,18 @@ This document tracks all system, backend, and frontend dependencies required to 
 
 ---
 
-## 4. Installation & Update Strategy
+## 4. Desktop Shortcut & System Integration
+
+| Asset / File | Target Path | Purpose |
+| :--- | :--- | :--- |
+| **App Icon** | `assets/instasave.svg` | Custom high-resolution vector app icon |
+| **Desktop Shortcut** | `~/Desktop/InstaSave.desktop` | Direct launch icon on Fedora desktop |
+| **App Launcher Entry** | `~/.local/share/applications/instasave.desktop` | GNOME / Fedora Application menu integration |
+
+---
+
+## 5. Installation & Update Strategy
 
 - **Local Git Repository (`git init`):** Initialized directly on Fedora workstation (`/run/media/psychlone/Projects/InstaSave`).
-- **Installer Script (`install.sh`):** Handles DNF dependency checks, virtualenv creation, database migration, interactive configuration prompts, systemd user service registration (`systemctl --user enable instasave`), and update execution (`./install.sh --update`).
+- **Installer Script (`install.sh`):** Handles DNF dependency checks, virtualenv creation, database migration, interactive configuration prompts, systemd user service registration (`systemctl --user enable instasave`), desktop shortcut installation (`InstaSave.desktop`), and update execution (`./install.sh --update`).
 - **Remote Migration Target:** GitHub repository integration when ready for public/private distribution.

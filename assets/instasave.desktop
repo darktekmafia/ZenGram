@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=InstaSave
+GenericName=Instagram Content Saver
+Comment=Local Web UI for browsing, archiving, and saving Instagram media
+Exec=xdg-open http://localhost:8484
+Icon=/run/media/psychlone/Projects/InstaSave/assets/instasave.svg
+Terminal=false
+Categories=Network;FileTransfer;Utility;
+Keywords=Instagram;Downloader;Saver;Archive;Media;
+StartupNotify=true
