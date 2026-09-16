@@ -19,7 +19,9 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
             download_directory=str(settings.DOWNLOAD_DIR),
             auto_sync_interval_hours=6,
             rate_limit_delay_seconds=3.0,
-            max_posts_per_fetch=50
+            max_posts_per_fetch=50,
+            max_queue_limit=8,
+            max_download_workers=2
         )
         db.add(app_settings)
         await db.commit()
@@ -38,6 +40,8 @@ async def update_settings(data: AppSettingsSchema, db: AsyncSession = Depends(ge
     app_settings.auto_sync_interval_hours = data.auto_sync_interval_hours
     app_settings.rate_limit_delay_seconds = data.rate_limit_delay_seconds
     app_settings.max_posts_per_fetch = data.max_posts_per_fetch
+    app_settings.max_queue_limit = data.max_queue_limit
+    app_settings.max_download_workers = data.max_download_workers
 
     await db.commit()
     await db.refresh(app_settings)

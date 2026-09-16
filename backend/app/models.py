@@ -56,8 +56,11 @@ class DownloadJob(Base):
 
     id: Mapped[str] = mapped_column(String(50), primary_key=True)
     status: Mapped[str] = mapped_column(String(20), default="queued") # queued, in_progress, completed, failed
+    category_tag: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     total_items: Mapped[int] = mapped_column(Integer, default=0)
     completed_items: Mapped[int] = mapped_column(Integer, default=0)
+    current_stage: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    logs: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
     completed_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, nullable=True)
@@ -70,3 +73,5 @@ class AppSettings(Base):
     auto_sync_interval_hours: Mapped[int] = mapped_column(Integer, default=6)
     rate_limit_delay_seconds: Mapped[float] = mapped_column(Float, default=3.0)
     max_posts_per_fetch: Mapped[int] = mapped_column(Integer, default=50)
+    max_queue_limit: Mapped[int] = mapped_column(Integer, default=8)
+    max_download_workers: Mapped[int] = mapped_column(Integer, default=2)

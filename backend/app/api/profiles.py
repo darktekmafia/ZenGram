@@ -63,23 +63,29 @@ async def sync_followed_accounts(db: AsyncSession = Depends(get_db)):
 
     return imported_profiles
 
+async def get_active_scraper(db: AsyncSession) -> InstagramScraperEngine:
+    res = await db.execute(select(UserSession).where(UserSession.is_active == True))
+    session = res.scalars().first()
+    cookie = session.session_cookie if session and session.session_cookie != "dummy_session_cookie" else None
+    return InstagramScraperEngine(session_cookie=cookie)
+
 @router.post("", response_model=WatchedProfileResponse)
 async def add_watched_profile(data: WatchedProfileCreate, db: AsyncSession = Depends(get_db)):
-    username = data.username.lstrip("@").strip()
+    username = data.username.rstrip("/").lstrip("@").strip()
     result = await db.execute(select(WatchedProfile).where(WatchedProfile.username == username))
     existing = result.scalars().first()
     if existing:
         return existing
 
-    # Fetch profile metadata from Instagram scraper engine
-    scraper = InstagramScraperEngine()
+    # Fetch profile metadata from Instagram scraper engine with active session cookie
+    scraper = await get_active_scraper(db)
     profile_info = await scraper.get_user_profile(username)
     
     new_profile = WatchedProfile(
         username=username,
         ig_user_id=profile_info.get("ig_user_id") if profile_info else data.ig_user_id,
         full_name=profile_info.get("full_name") if profile_info else data.full_name,
-        profile_pic_url=profile_info.get("profile_pic_url") if profile_info else data.profile_pic_url,
+        profile_pic_url=profile_info.get("profile_pic_url") if profile_info else f"https://ui-avatars.com/api/?name={username}&background=random",
         is_unfollowed_track=data.is_unfollowed_track,
         auto_sync_enabled=data.auto_sync_enabled,
         sync_interval_hours=data.sync_interval_hours
@@ -91,23 +97,37 @@ async def add_watched_profile(data: WatchedProfileCreate, db: AsyncSession = Dep
 
 @router.delete("/{username}")
 async def remove_watched_profile(username: str, db: AsyncSession = Depends(get_db)):
-    username = username.lstrip("@").strip()
-    result = await db.execute(select(WatchedProfile).where(WatchedProfile.username == username))
+    clean_username = username.rstrip("/").lstrip("@").strip()
+    result = await db.execute(select(WatchedProfile).where(
+        (WatchedProfile.username == clean_username) | (WatchedProfile.username == username)
+    ))
     profile = result.scalars().first()
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     await db.delete(profile)
     await db.commit()
-    return {"message": f"Profile @{username} removed from watched accounts"}
+    return {"message": f"Profile @{clean_username} removed from watched accounts"}
 
 @router.get("/{username}/media", response_model=List[MediaItemResponse])
-async def fetch_user_media(username: str, limit: int = Query(20, ge=1, le=100), db: AsyncSession = Depends(get_db)):
-    username = username.lstrip("@").strip()
-    scraper = InstagramScraperEngine()
+async def fetch_user_media(username: str, limit: int = Query(200, ge=1, le=500), db: AsyncSession = Depends(get_db)):
+    username = username.rstrip("/").lstrip("@").strip()
+    scraper = await get_active_scraper(db)
+
+    # Update profile pic in DB if placeholder
+    wp_res = await db.execute(select(WatchedProfile).where(WatchedProfile.username == username))
+    wp = wp_res.scalars().first()
+    if wp and (not wp.profile_pic_url or "ui-avatars.com" in wp.profile_pic_url or "unsplash.com" in wp.profile_pic_url):
+        prof_info = await scraper.get_user_profile(username)
+        if prof_info and prof_info.get("profile_pic_url"):
+            wp.profile_pic_url = prof_info["profile_pic_url"]
+            await db.commit()
+
     posts_data = await scraper.get_user_posts(username, limit=limit)
+    stories_data = await scraper.get_user_stories(username, wp.ig_user_id if wp else None)
     
-    response_items = []
-    for item in posts_data:
+    combined_items = posts_data + stories_data
+    
+    for item in combined_items:
         # Check DB if already exists
         result = await db.execute(select(MediaItem).where(MediaItem.post_id == item["post_id"]))
         existing = result.scalars().first()
@@ -127,9 +147,26 @@ async def fetch_user_media(username: str, limit: int = Query(20, ge=1, le=100), 
             )
             db.add(new_item)
             await db.commit()
-            await db.refresh(new_item)
-            response_items.append(new_item)
         else:
-            response_items.append(existing)
-            
-    return response_items
+            if item.get("media_type") and item["media_type"] != "IMAGE":
+                existing.media_type = item["media_type"]
+            if item.get("display_url"):
+                existing.display_url = item["display_url"]
+            if item.get("thumbnail_url"):
+                existing.thumbnail_url = item["thumbnail_url"]
+            if item.get("video_url"):
+                existing.video_url = item["video_url"]
+            await db.commit()
+
+    # Query all stored media items for this user
+    all_media = await db.execute(
+        select(MediaItem)
+        .where(MediaItem.username.ilike(f"%{username}%"))
+        .order_by(MediaItem.id.desc())
+        .limit(limit)
+    )
+    items = all_media.scalars().all()
+    from backend.app.api.downloads import enrich_media_item
+    for it in items:
+        enrich_media_item(it)
+    return items

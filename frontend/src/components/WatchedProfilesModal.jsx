@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { X, Plus, Trash2, Eye, UserCheck } from 'lucide-react'
+import ProfileAvatar from './ProfileAvatar'
 
 export default function WatchedProfilesModal({
   isOpen,
@@ -18,7 +19,7 @@ export default function WatchedProfilesModal({
     e.preventDefault()
     if (!handle.trim()) return
     setLoading(true)
-    await onAddProfile(handle.trim())
+    await onAddProfile(handle)
     setHandle('')
     setLoading(false)
   }
@@ -28,40 +29,43 @@ export default function WatchedProfilesModal({
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Eye size={20} className="text-blue-500" />
+            <Eye size={20} color="var(--accent-purple)" />
             <h2 className="modal-title">Track Unfollowed Accounts</h2>
           </div>
           <button className="modal-close" onClick={onClose}>
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
-          Enter an Instagram handle or User ID to browse and archive media without following the account on Instagram.
+        <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
+          Add Instagram usernames that you <strong>do not follow</strong> to archive their public media feed, reels, and stories alongside your followed accounts.
         </p>
 
-        <form onSubmit={handleSubmit} style={{ marginBottom: '24px' }}>
-          <label style={{ fontSize: '0.82rem', fontWeight: '600', color: 'var(--text-main)' }}>
-            Instagram Username or Handle
-          </label>
-          <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+        <form onSubmit={handleSubmit} style={{ marginBottom: '20px' }}>
+          <div style={{ display: 'flex', gap: '8px' }}>
             <input
               type="text"
               className="input-field"
-              placeholder="e.g. life_hacker or @recipes_daily"
+              placeholder="@username (e.g. tay_miles_24)"
               value={handle}
               onChange={(e) => setHandle(e.target.value)}
-              style={{ margin: 0 }}
+              style={{ marginBottom: 0, flex: 1 }}
+              autoFocus
             />
-            <button type="submit" className="btn-primary" disabled={loading}>
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={loading || !handle.trim()}
+              style={{ height: '42px', padding: '0 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
               <Plus size={16} />
-              <span>{loading ? 'Adding...' : 'Add'}</span>
+              <span>{loading ? 'Adding...' : 'Track'}</span>
             </button>
           </div>
         </form>
 
-        <h3 style={{ fontSize: '0.9rem', fontWeight: '600', marginBottom: '12px' }}>
-          Currently Tracked Profiles ({profiles.length})
+        <h3 style={{ fontSize: '0.88rem', fontWeight: '600', marginBottom: '10px', color: 'var(--text-muted)' }}>
+          Tracked Unfollowed Profiles ({profiles.length})
         </h3>
 
         <div className="profiles-list" style={{ maxHeight: '240px', overflowY: 'auto' }}>
@@ -73,10 +77,11 @@ export default function WatchedProfilesModal({
             profiles.map((p) => (
               <div key={p.id} className="profile-item-row">
                 <div className="profile-user-group">
-                  <img
-                    src={p.profile_pic_url || `https://ui-avatars.com/api/?name=${p.username}`}
-                    alt={p.username}
-                    style={{ width: '32px', height: '32px', borderRadius: '50%' }}
+                  <ProfileAvatar
+                    username={p.username}
+                    profilePicUrl={p.profile_pic_url}
+                    className="profile-avatar-small"
+                    style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover' }}
                   />
                   <div>
                     <div style={{ fontWeight: '600', fontSize: '0.88rem' }}>@{p.username}</div>

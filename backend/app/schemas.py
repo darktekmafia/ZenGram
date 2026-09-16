@@ -11,6 +11,7 @@ class UserSessionCreate(UserSessionBase):
 class UserSessionResponse(UserSessionBase):
     id: int
     is_active: bool
+    session_cookie: Optional[str] = None
     created_at: datetime.datetime
     last_validated_at: Optional[datetime.datetime] = None
 
@@ -65,8 +66,11 @@ class BulkDownloadRequest(BaseModel):
 class DownloadJobResponse(BaseModel):
     id: str
     status: str
+    category_tag: Optional[str] = None
     total_items: int
     completed_items: int
+    current_stage: Optional[str] = None
+    logs: Optional[str] = None
     error_message: Optional[str] = None
     created_at: datetime.datetime
     completed_at: Optional[datetime.datetime] = None
@@ -78,6 +82,8 @@ class AppSettingsSchema(BaseModel):
     auto_sync_interval_hours: int = 6
     rate_limit_delay_seconds: float = 3.0
     max_posts_per_fetch: int = 50
+    max_queue_limit: int = 8
+    max_download_workers: int = 2
 
     model_config = ConfigDict(from_attributes=True)
 

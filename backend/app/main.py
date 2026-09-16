@@ -12,10 +12,21 @@ from backend.app.api.feed import router as feed_router
 from backend.app.api.downloads import router as downloads_router
 from backend.app.api.settings import router as settings_router
 
+from backend.app.services.scraper import rate_tracker
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize SQLite tables on startup
     await init_db()
+    rate_tracker.reset()
+
+    # Reset any leftover in_progress or queued jobs from previous crashed/restarted processes
+    from sqlalchemy import text
+    from backend.app.database import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
+        await db.execute(text("UPDATE download_jobs SET status = 'failed' WHERE status IN ('in_progress', 'queued')"))
+        await db.commit()
+
     yield
 
 app = FastAPI(
@@ -43,6 +54,27 @@ app.include_router(settings_router, prefix=settings.API_PREFIX)
 @app.get("/health")
 async def health_check():
     return {"status": "ok", "app": settings.PROJECT_NAME, "version": settings.VERSION}
+
+import httpx
+from fastapi import Response, Query, HTTPException
+
+@app.get("/api/v1/proxy/image")
+async def proxy_image(url: str = Query(...)):
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        try:
+            res = await client.get(url, headers={
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+                "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+            })
+            if res.status_code == 200:
+                return Response(
+                    content=res.content,
+                    media_type=res.headers.get("content-type", "image/jpeg"),
+                    headers={"Cache-Control": "public, max-age=86400, immutable"}
+                )
+        except Exception:
+            pass
+    raise HTTPException(status_code=404, detail="Failed to proxy image")
 
 # Serve Frontend static assets if dist folder exists
 dist_dir = settings.BASE_DIR / "frontend" / "dist"

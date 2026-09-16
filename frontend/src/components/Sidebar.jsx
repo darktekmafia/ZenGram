@@ -1,7 +1,15 @@
 import React from 'react'
-import { LayoutDashboard, Users, Eye, Download, ListOrdered, Settings, ShieldCheck } from 'lucide-react'
+import { LayoutDashboard, Users, Eye, Download, ListOrdered, Settings, ShieldCheck, Terminal, X } from 'lucide-react'
 
-export default function Sidebar({ activeTab, setActiveTab, onOpenAddProfileModal, userSession }) {
+export default function Sidebar({
+  activeTab,
+  setActiveTab,
+  onOpenAddProfileModal,
+  userSession,
+  dockedJob,
+  onOpenDockedConsole,
+  onCloseDockedConsole
+}) {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'watched', label: 'Tracked Accounts', icon: Eye, badge: 'Unfollowed' },
@@ -46,7 +54,87 @@ export default function Sidebar({ activeTab, setActiveTab, onOpenAddProfileModal
         })}
       </nav>
 
-      <div className="user-status-card">
+      {/* Docked Minimized Console Card */}
+      {dockedJob && (
+        <div
+          style={{
+            marginTop: 'auto',
+            marginBottom: '10px',
+            padding: '10px 12px',
+            borderRadius: '8px',
+            background: 'linear-gradient(145deg, #0d1220, #080b14)',
+            border: dockedJob.status === 'in_progress' ? '1px solid rgba(96, 165, 250, 0.45)' : '1px solid rgba(255, 255, 255, 0.1)',
+            boxShadow: dockedJob.status === 'in_progress' ? '0 0 14px rgba(59, 130, 246, 0.25)' : 'none',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px'
+          }}
+          onClick={onOpenDockedConsole}
+          title="Click to restore full live console modal"
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+              <Terminal size={14} style={{ color: '#a78bfa', flexShrink: 0 }} />
+              <span style={{ fontSize: '0.78rem', fontWeight: '700', color: '#fff', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                {dockedJob.category_tag ? `@${dockedJob.category_tag.replace(/^@/, '')}` : 'Batch Download'}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {dockedJob.status === 'in_progress' ? (
+                <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#60a5fa' }} className="animate-pulse" />
+              ) : dockedJob.status === 'completed' ? (
+                <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#34d399' }} />
+              ) : (
+                <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#f87171' }} />
+              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onCloseDockedConsole()
+                }}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  padding: '2px',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
+                title="Dismiss docked console"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          </div>
+
+          {/* Mini progress bar */}
+          <div style={{ width: '100%', background: 'rgba(255, 255, 255, 0.08)', borderRadius: '4px', height: '4px', overflow: 'hidden' }}>
+            <div
+              style={{
+                width: `${dockedJob.total_items > 0 ? Math.min(100, Math.round((dockedJob.completed_items / dockedJob.total_items) * 100)) : (dockedJob.status === 'completed' ? 100 : 0)}%`,
+                height: '100%',
+                background: dockedJob.status === 'completed' ? '#10b981' : 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
+                transition: 'width 0.3s ease'
+              }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+            <span style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: '105px' }}>
+              {dockedJob.current_stage || (dockedJob.status === 'in_progress' ? 'Downloading...' : 'Completed')}
+            </span>
+            <span style={{ fontWeight: '600', color: dockedJob.status === 'completed' ? '#34d399' : '#60a5fa' }}>
+              {dockedJob.total_items > 0 ? `${Math.min(100, Math.round((dockedJob.completed_items / dockedJob.total_items) * 100))}%` : (dockedJob.status === 'completed' ? '100%' : 'Active')}
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div className="user-status-card" style={dockedJob ? { marginTop: '0' } : {}}>
         <div className="user-avatar">{initial}</div>
         <div className="user-info">
           <span className="user-name">{displayName}</span>
