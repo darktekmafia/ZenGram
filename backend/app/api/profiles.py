@@ -4,8 +4,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from backend.app.database import get_db
 from backend.app.models import WatchedProfile, MediaItem, UserSession
-from backend.app.schemas import WatchedProfileCreate, WatchedProfileResponse, MediaItemResponse
+from backend.app.schemas import (
+    WatchedProfileCreate,
+    WatchedProfileBulkCreate,
+    WatchedProfileResponse,
+    WatchedProfileBulkResponse,
+    MediaItemResponse
+)
 from backend.app.services.scraper import InstagramScraperEngine
+from sqlalchemy import func
 
 router = APIRouter(prefix="/profiles", tags=["Profiles"])
 
@@ -95,6 +102,86 @@ async def add_watched_profile(data: WatchedProfileCreate, db: AsyncSession = Dep
     await db.refresh(new_profile)
     return new_profile
 
+@router.post("/bulk", response_model=WatchedProfileBulkResponse)
+async def bulk_add_watched_profiles(data: WatchedProfileBulkCreate, db: AsyncSession = Depends(get_db)):
+    added_profiles = []
+    skipped_count = 0
+    seen_in_batch = set()
+    cleaned_usernames = []
+
+    for raw in data.usernames:
+        clean = raw.strip()
+        if not clean:
+            continue
+        if "instagram.com/" in clean:
+            clean = clean.split("instagram.com/")[-1].split("?")[0].split("/")[0]
+        clean = clean.rstrip("/").lstrip("@").strip()
+        if not clean or len(clean) > 100 or clean.lower() in seen_in_batch:
+            continue
+
+        seen_in_batch.add(clean.lower())
+
+        # Check if already in database
+        stmt = select(WatchedProfile).where(func.lower(WatchedProfile.username) == clean.lower())
+        res = await db.execute(stmt)
+        existing = res.scalars().first()
+        if existing:
+            skipped_count += 1
+            continue
+
+        cleaned_usernames.append(clean)
+
+    if not cleaned_usernames:
+        return {
+            "added_count": 0,
+            "skipped_count": skipped_count,
+            "total_count": skipped_count,
+            "added_profiles": []
+        }
+
+    import asyncio
+    scraper = await get_active_scraper(db)
+    semaphore = asyncio.Semaphore(4)
+
+    async def fetch_meta_and_create(clean: str):
+        async with semaphore:
+            prof_info = None
+            try:
+                prof_info = await scraper.get_user_profile(clean)
+            except Exception:
+                pass
+
+            ig_user_id = prof_info.get("ig_user_id") if prof_info else None
+            full_name = prof_info.get("full_name") if prof_info else clean
+            profile_pic = prof_info.get("profile_pic_url") if prof_info else f"https://ui-avatars.com/api/?name={clean}&background=random"
+
+            return WatchedProfile(
+                username=clean,
+                ig_user_id=ig_user_id,
+                full_name=full_name,
+                profile_pic_url=profile_pic,
+                is_unfollowed_track=data.is_unfollowed_track,
+                auto_sync_enabled=True,
+                sync_interval_hours=12
+            )
+
+    tasks = [fetch_meta_and_create(u) for u in cleaned_usernames]
+    results = await asyncio.gather(*tasks)
+
+    for p in results:
+        db.add(p)
+    await db.commit()
+    for p in results:
+        await db.refresh(p)
+        added_profiles.append(p)
+
+    return {
+        "added_count": len(added_profiles),
+        "skipped_count": skipped_count,
+        "total_count": len(added_profiles) + skipped_count,
+        "added_profiles": added_profiles
+    }
+
 @router.delete("/{username}")
 async def remove_watched_profile(username: str, db: AsyncSession = Depends(get_db)):
     clean_username = username.rstrip("/").lstrip("@").strip()
@@ -162,7 +249,7 @@ async def fetch_user_media(username: str, limit: int = Query(200, ge=1, le=500),
     all_media = await db.execute(
         select(MediaItem)
         .where(MediaItem.username.ilike(f"%{username}%"))
-        .order_by(MediaItem.id.desc())
+        .order_by(MediaItem.taken_at.desc().nullslast(), MediaItem.id.desc())
         .limit(limit)
     )
     items = all_media.scalars().all()

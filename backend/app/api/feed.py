@@ -1,7 +1,7 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func
 from backend.app.database import get_db
 from backend.app.models import MediaItem, WatchedProfile
 from backend.app.schemas import MediaItemResponse
@@ -20,8 +20,19 @@ async def get_latest_feed(
     stmt = select(MediaItem)
     if content_type and content_type != "ALL":
         stmt = stmt.where(MediaItem.media_type == content_type)
+        
     if filter_user:
         stmt = stmt.where(MediaItem.username.ilike(f"%{filter_user}%"))
+    else:
+        # Feed (Dashboard) should only show posts from followed accounts and NOT from tracked (unfollowed) accounts.
+        followed_usernames = select(func.lower(WatchedProfile.username)).where(WatchedProfile.is_unfollowed_track == False)
+        tracked_usernames = select(func.lower(WatchedProfile.username)).where(WatchedProfile.is_unfollowed_track == True)
+        
+        stmt = stmt.where(
+            func.lower(MediaItem.username).in_(followed_usernames),
+            func.lower(MediaItem.username).notin_(tracked_usernames)
+        )
+
     if query_search:
         term = query_search.strip()
         clean_term = term.lstrip('@')
@@ -33,7 +44,11 @@ async def get_latest_feed(
             )
         )
         
-    stmt = stmt.order_by(MediaItem.id.desc()).limit(limit)
+    stmt = stmt.order_by(
+        MediaItem.taken_at.desc().nullslast(),
+        MediaItem.id.desc()
+    ).limit(limit)
+    
     result = await db.execute(stmt)
     items = result.scalars().all()
 

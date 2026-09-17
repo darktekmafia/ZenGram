@@ -8,26 +8,33 @@
 
 ## 🌟 Key Features
 
-- **Media Feed & Archiver**: Browse media from followed accounts and unfollowed tracked profiles with real-time stats (likes, comments, timestamps).
+- **Chronological Feed (Followed Accounts Only)**:
+  - Displays media exclusively from your followed accounts, sorted chronologically (**newest post first**) across all accounts using precise Instagram Snowflake timestamp decoding.
+  - Automatically isolates Tracked Accounts from the main feed to keep your daily dashboard uncluttered.
+- **Dedicated Tracked Accounts Manager**:
+  - Browse and archive public accounts without following them on Instagram.
+  - **Bulk Import**: Import dozens of accounts simultaneously via single handle, multi-line text input (supporting spaces, commas, newlines, and URLs), or `.txt`/`.csv` file upload.
+  - **High-Res Profile Photo Scraping**: Robust scraping engine extracts authentic profile avatars without sidebar collisions with the logged-in user's profile icon.
 - **Interactive Multi-Slide Carousels**:
   - Full carousel navigation with Next/Previous slide controls and slide counters (`Slide X of Y`).
   - Seamless support for mixed-media carousels (combining photos and video slides).
   - Single-slide download, active slide deletion, or bulk `.zip` download of entire carousels.
 - **Embedded & On-Demand Video Player**:
-  - Live video streaming directly within post cards using progressive HTML5 `<video>` controls.
-  - Centered glassmorphism Play button overlay on video thumbnails with automatic stream fetching.
+  - Progressive HTML5 `<video>` player with on-demand playback (no annoying autoplay on hover).
+  - Default playback volume set to muted / safe low volume.
+  - Correct video thumbnail extraction and display for both live feed and saved downloads.
   - Instant local playback for archived videos with zero latency.
-- **Followed & Unfollowed Profile Management**:
+- **Followed Account Sync**:
   - One-click **Sync Followed Accounts** to automatically import accounts followed by your Instagram session.
-  - Track public Instagram accounts without following them on Instagram.
   - Automatic profile picture proxying (`/api/v1/proxy/image`) to bypass Instagram CDN referrer/CORS blocks.
 - **Batch Archiving & Download Queue**:
   - Configurable batch downloader allowing users to archive up to N posts per account or specific post ranges.
   - Real-time Task Queue tab tracking active, completed, and pending download jobs.
   - Parallel download worker controls (1 to 8 workers, configurable in Settings).
   - Queue capacity limits (configurable in Settings).
-- **Live Terminal & Console**:
+- **Live Terminal & Console Docking**:
   - Real-time in-app live terminal viewer to monitor scraper and downloader logs directly from the UI.
+  - Dockable console mode with instant restore and maximize options.
 - **Systemd & Desktop Integration**:
   - Automatic background service via `instasave.service` (`systemctl --user`).
   - Native GNOME application shortcut (`InstaSave.desktop`).

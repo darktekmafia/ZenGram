@@ -225,6 +225,25 @@ export default function App() {
     }
   }
 
+  const handleBulkAddProfiles = async (usernames) => {
+    if (!usernames || usernames.length === 0) return { added_count: 0, skipped_count: 0 }
+    try {
+      const res = await fetch('/api/v1/profiles/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usernames, is_unfollowed_track: true }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        await fetchProfiles()
+        return data
+      }
+    } catch (err) {
+      console.error('Error bulk adding profiles:', err)
+    }
+    return { added_count: 0, skipped_count: 0 }
+  }
+
   const handleRemoveProfile = async (username) => {
     const cleanUsername = username.trim().replace(/\/+$/, '').replace(/^@+/, '')
     try {
@@ -1385,6 +1404,7 @@ export default function App() {
         onClose={() => setIsTrackModalOpen(false)}
         profiles={watchedProfiles}
         onAddProfile={handleAddProfile}
+        onBulkAddProfiles={handleBulkAddProfiles}
         onRemoveProfile={handleRemoveProfile}
         onSelectProfile={(username) => {
           setSelectedUserFilter(username)

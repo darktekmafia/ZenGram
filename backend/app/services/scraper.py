@@ -7,6 +7,51 @@ from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger("instasave.scraper")
 
+def extract_timestamp_from_shortcode(shortcode: Optional[str]) -> Optional[datetime.datetime]:
+    """Decode Instagram snowflake timestamp from shortcode or numeric media ID."""
+    if not shortcode:
+        return None
+    try:
+        clean = shortcode.strip().replace("ig_", "").replace("story_", "")
+        now_utc = datetime.datetime.utcnow()
+
+        # 1. Numeric Media ID
+        if clean.isdigit():
+            media_id = int(clean)
+            epoch_ms = 1314220021721
+            timestamp_ms = (media_id >> 23) + epoch_ms
+            dt = datetime.datetime.fromtimestamp(timestamp_ms / 1000.0, tz=datetime.timezone.utc).replace(tzinfo=None)
+            if datetime.datetime(2010, 1, 1) <= dt <= now_utc + datetime.timedelta(days=1):
+                return dt
+
+        # 2. Instagram Base64 Shortcode (canonical length is 11 chars)
+        candidate_codes = []
+        if len(clean) >= 11:
+            candidate_codes.append(clean[:11])
+        candidate_codes.append(clean)
+        if len(clean) >= 10:
+            candidate_codes.append(clean[:10])
+
+        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        for code in candidate_codes:
+            if not all(c in alphabet for c in code):
+                continue
+            media_id = 0
+            for char in code:
+                media_id = media_id * 64 + alphabet.index(char)
+            
+            epoch_ms = 1314220021721
+            timestamp_ms = (media_id >> 23) + epoch_ms
+            try:
+                dt = datetime.datetime.fromtimestamp(timestamp_ms / 1000.0, tz=datetime.timezone.utc).replace(tzinfo=None)
+                if datetime.datetime(2010, 1, 1) <= dt <= now_utc + datetime.timedelta(days=1):
+                    return dt
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
 class RateLimitTracker:
     def __init__(self, max_per_hour: int = 150):
         self.max_per_hour = max_per_hour
@@ -108,9 +153,42 @@ class InstagramScraperEngine:
                     logger.warning(f"Initial navigation for {username} reached timeout: {e}")
                 
                 profile_pic = None
-                img = await page.query_selector('header img')
-                if img:
-                    profile_pic = await img.get_attribute('src')
+                try:
+                    profile_pic = await page.evaluate('''username => {
+                        const target = username.toLowerCase();
+                        const imgs = Array.from(document.querySelectorAll('img'));
+                        
+                        // 1. Exact match target username in alt attribute (e.g. alt="<username>'s profile picture")
+                        for (const img of imgs) {
+                            const alt = (img.getAttribute('alt') || '').toLowerCase();
+                            const src = img.getAttribute('src') || '';
+                            if (alt.includes(target) && (alt.includes('profile picture') || alt.includes('profile photo') || alt.includes('avatar'))) {
+                                if (src && !src.endsWith('.mp4') && (src.includes('fbcdn') || src.includes('instagram'))) return src;
+                            }
+                        }
+                        
+                        // 2. Main header profile image (> 40px width and height, ignoring sidebar navbar 24x24)
+                        const headerImgs = Array.from(document.querySelectorAll('main header img, header [role="button"] img, main img'));
+                        for (const img of headerImgs) {
+                            const src = img.getAttribute('src') || '';
+                            const rect = img.getBoundingClientRect();
+                            if (rect.width >= 40 && rect.height >= 40 && src && !src.endsWith('.mp4') && (src.includes('fbcdn') || src.includes('instagram'))) {
+                                return src;
+                            }
+                        }
+                        
+                        // 3. Fallback any profile image URL containing -19/ with width >= 40px
+                        for (const img of imgs) {
+                            const src = img.getAttribute('src') || '';
+                            const rect = img.getBoundingClientRect();
+                            if (src.includes('-19/') && rect.width >= 40 && !src.endsWith('.mp4') && (src.includes('fbcdn') || src.includes('instagram'))) {
+                                return src;
+                            }
+                        }
+                        return null;
+                    }''', username)
+                except Exception as e:
+                    logger.warning(f"Error extracting profile avatar for {username}: {e}")
                 
                 seen_codes = set()
                 posts = []
@@ -212,7 +290,7 @@ class InstagramScraperEngine:
                                 "caption": alt or f"Media post {shortcode}",
                                 "likes_count": 0,
                                 "comments_count": 0,
-                                "taken_at": datetime.datetime.utcnow()
+                                "taken_at": extract_timestamp_from_shortcode(shortcode) or datetime.datetime.utcnow()
                             })
 
                         if new_found_in_cycle > 0 and progress_callback:
@@ -261,8 +339,8 @@ class InstagramScraperEngine:
                     if user:
                         return {
                             "ig_user_id": str(user.get("id")),
-                            "username": user.get("username"),
-                            "full_name": user.get("full_name"),
+                            "username": user.get("username") or username,
+                            "full_name": user.get("full_name") or username,
                             "profile_pic_url": user.get("profile_pic_url_hd") or user.get("profile_pic_url"),
                             "is_private": user.get("is_private", False),
                             "is_verified": user.get("is_verified", False),
@@ -272,10 +350,9 @@ class InstagramScraperEngine:
                             "bio": user.get("biography", "")
                         }
             except Exception as e:
-                logger.warning(f"Failed web_profile_info for {username}: {e}")
+                logger.warning(f"Error fetching web_profile_info for {username}: {e}")
 
-        # 2. Fallback to Playwright browser scraper
-        logger.info(f"Falling back to Playwright to scrape profile @{username}")
+        # 2. Fallback to Playwright headful/headless DOM scan
         profile_pic, _ = await self._fetch_via_playwright(username, limit=1)
         return {
             "ig_user_id": f"dummy_{username}",
@@ -295,61 +372,64 @@ class InstagramScraperEngine:
         rate_tracker.record_request()
         await self._async_delay()
 
-        # 1. Try web_profile_info API first (if limit is small, e.g. <= 30)
-        if limit > 0 and limit <= 30:
-            url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
-            async with httpx.AsyncClient(headers=self.headers, follow_redirects=True, timeout=10.0) as client:
-                try:
-                    response = await client.get(url)
-                    if response.status_code == 200:
-                        data = response.json()
-                        user = data.get("data", {}).get("user", {})
-                        
-                        timeline_edges = user.get("edge_owner_to_timeline_media", {}).get("edges", [])
-                        felix_edges = user.get("edge_felix_video_timeline", {}).get("edges", [])
-                        combined_edges = user.get("edge_felix_combined_post_uploads", {}).get("edges", [])
-                        
-                        all_edges = []
-                        seen_edge_ids = set()
-                        for edge_list in [timeline_edges, felix_edges, combined_edges]:
-                            for edge in edge_list:
-                                node = edge.get("node", {})
-                                node_id = node.get("id") or node.get("shortcode")
-                                if node_id and node_id not in seen_edge_ids:
-                                    seen_edge_ids.add(node_id)
-                                    all_edges.append(edge)
+        # 1. Try web_profile_info API first
+        url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
+        async with httpx.AsyncClient(headers=self.headers, follow_redirects=True, timeout=10.0) as client:
+            try:
+                response = await client.get(url)
+                if response.status_code == 200:
+                    data = response.json()
+                    user = data.get("data", {}).get("user", {})
+                    
+                    timeline_edges = user.get("edge_owner_to_timeline_media", {}).get("edges", [])
+                    felix_edges = user.get("edge_felix_video_timeline", {}).get("edges", [])
+                    combined_edges = user.get("edge_felix_combined_post_uploads", {}).get("edges", [])
+                    
+                    all_edges = []
+                    seen_edge_ids = set()
+                    for edge_list in [timeline_edges, felix_edges, combined_edges]:
+                        for edge in edge_list:
+                            node = edge.get("node", {})
+                            node_id = node.get("id") or node.get("shortcode")
+                            if node_id and node_id not in seen_edge_ids:
+                                seen_edge_ids.add(node_id)
+                                all_edges.append(edge)
 
-                        if all_edges and len(all_edges) >= limit:
-                            posts = []
-                            for edge in all_edges[:limit]:
-                                node = edge.get("node", {})
-                                media_type = "IMAGE"
-                                if node.get("is_video"):
-                                    media_type = "VIDEO"
-                                elif node.get("__typename") == "GraphSidecar":
-                                    media_type = "CAROUSEL"
+                    if all_edges and (limit > 0 and len(all_edges) >= limit):
+                        posts = []
+                        for edge in all_edges[:limit]:
+                            node = edge.get("node", {})
+                            media_type = "IMAGE"
+                            if node.get("is_video"):
+                                media_type = "VIDEO"
+                            elif node.get("__typename") == "GraphSidecar":
+                                media_type = "CAROUSEL"
 
-                                caption = ""
-                                cap_edges = node.get("edge_media_to_caption", {}).get("edges", [])
-                                if cap_edges:
-                                    caption = cap_edges[0].get("node", {}).get("text", "")
+                            caption = ""
+                            cap_edges = node.get("edge_media_to_caption", {}).get("edges", [])
+                            if cap_edges:
+                                caption = cap_edges[0].get("node", {}).get("text", "")
 
-                                posts.append({
-                                    "post_id": str(node.get("id")),
-                                    "shortcode": str(node.get("shortcode")),
-                                    "username": username,
-                                    "media_type": media_type,
-                                    "display_url": node.get("display_url"),
-                                    "thumbnail_url": node.get("thumbnail_src") or node.get("display_url"),
-                                    "video_url": node.get("video_url") if node.get("is_video") else None,
-                                    "caption": caption,
-                                    "likes_count": node.get("edge_media_preview_like", {}).get("count", 0),
-                                    "comments_count": node.get("edge_media_to_comment", {}).get("count", 0),
-                                    "taken_at": datetime.datetime.fromtimestamp(node.get("taken_at_timestamp", 0)),
-                                })
-                            return posts
-                except Exception as e:
-                    logger.error(f"Error fetching posts for {username}: {e}")
+                            shortcode = str(node.get("shortcode") or node.get("id"))
+                            ts = node.get("taken_at_timestamp")
+                            taken_dt = datetime.datetime.fromtimestamp(ts) if ts else extract_timestamp_from_shortcode(shortcode)
+
+                            posts.append({
+                                "post_id": str(node.get("id") or f"ig_{shortcode}"),
+                                "shortcode": shortcode,
+                                "username": username,
+                                "media_type": media_type,
+                                "display_url": node.get("display_url"),
+                                "thumbnail_url": node.get("thumbnail_src") or node.get("display_url"),
+                                "video_url": node.get("video_url") if node.get("is_video") else None,
+                                "caption": caption,
+                                "likes_count": node.get("edge_media_preview_like", {}).get("count", 0),
+                                "comments_count": node.get("edge_media_to_comment", {}).get("count", 0),
+                                "taken_at": taken_dt or datetime.datetime.utcnow(),
+                            })
+                        return posts
+            except Exception as e:
+                logger.error(f"Error fetching posts for {username}: {e}")
 
         # 2. Playwright deep continuous scroll for full uncapped profile or larger limits
         _, posts = await self._fetch_via_playwright(username, limit=limit, progress_callback=progress_callback)

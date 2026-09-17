@@ -43,7 +43,7 @@ export default function Header({
       default:
         return {
           title: 'Media Feed & Archiver',
-          subtitle: 'Browse and save media from followed accounts and unfollowed tracked profiles'
+          subtitle: 'Browse and save media from your followed accounts (newest first)'
         }
     }
   }

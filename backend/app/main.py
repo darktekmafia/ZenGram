@@ -21,11 +21,25 @@ async def lifespan(app: FastAPI):
     rate_tracker.reset()
 
     # Reset any leftover in_progress or queued jobs from previous crashed/restarted processes
-    from sqlalchemy import text
+    from sqlalchemy import text, select
     from backend.app.database import AsyncSessionLocal
+    from backend.app.models import MediaItem
+    from backend.app.services.scraper import extract_timestamp_from_shortcode
+
     async with AsyncSessionLocal() as db:
         await db.execute(text("UPDATE download_jobs SET status = 'failed' WHERE status IN ('in_progress', 'queued')"))
-        await db.commit()
+        
+        # Ensure accurate Instagram post creation timestamps across all items
+        res = await db.execute(select(MediaItem))
+        all_items = res.scalars().all()
+        any_updated = False
+        for item in all_items:
+            real_ts = extract_timestamp_from_shortcode(item.shortcode or item.post_id)
+            if real_ts and (not item.taken_at or abs((item.taken_at - real_ts).total_seconds()) > 60):
+                item.taken_at = real_ts
+                any_updated = True
+        if any_updated:
+            await db.commit()
 
     yield
 

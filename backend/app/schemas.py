@@ -28,6 +28,10 @@ class WatchedProfileCreate(WatchedProfileBase):
     full_name: Optional[str] = None
     profile_pic_url: Optional[str] = None
 
+class WatchedProfileBulkCreate(BaseModel):
+    usernames: List[str]
+    is_unfollowed_track: bool = True
+
 class WatchedProfileResponse(WatchedProfileBase):
     id: int
     ig_user_id: Optional[str] = None
@@ -37,6 +41,12 @@ class WatchedProfileResponse(WatchedProfileBase):
     created_at: datetime.datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+class WatchedProfileBulkResponse(BaseModel):
+    added_count: int
+    skipped_count: int
+    total_count: int
+    added_profiles: List[WatchedProfileResponse]
 
 class MediaItemResponse(BaseModel):
     id: int

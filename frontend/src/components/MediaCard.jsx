@@ -160,6 +160,14 @@ export default function MediaCard({ item, onSaveMedia, onDeleteMedia }) {
   }
 
   const getSlideSrc = () => {
+    // If it is a video, return the image thumbnail URL (never an MP4 video file path)
+    if (isPostVideo) {
+      if (currentSlide && (currentSlide.thumbnail_url || currentSlide.display_url)) {
+        return currentSlide.thumbnail_url || currentSlide.display_url
+      }
+      return item.thumbnail_url || item.display_url
+    }
+
     if (item.is_saved) {
       if (currentSlide && currentSlide.view_url) {
         return currentSlide.view_url
@@ -231,16 +239,21 @@ export default function MediaCard({ item, onSaveMedia, onDeleteMedia }) {
       </div>
 
       <div className="card-preview" style={{ position: 'relative' }}>
-        {(isPlayingVideo || (playableVideo && item.is_saved && isPostVideo)) && playableVideo && !videoError ? (
+        {isPlayingVideo && playableVideo && !videoError ? (
           <video
-            key={`vid_${item.post_id}_${activeSlide}_${playableVideo}`}
+            key={`vid_playing_${item.post_id}_${activeSlide}_${playableVideo}`}
             src={playableVideo}
             poster={getSlideSrc() || undefined}
             controls
             autoPlay
+            muted
             playsInline
             className="card-img"
             style={{ objectFit: 'cover', width: '100%', height: '100%' }}
+            onLoadedMetadata={(e) => {
+              // Set default volume to low (20%) for comfort when user unmutes
+              e.target.volume = 0.20
+            }}
             onError={() => {
               setVideoError(true)
               setIsPlayingVideo(false)
@@ -248,20 +261,33 @@ export default function MediaCard({ item, onSaveMedia, onDeleteMedia }) {
           />
         ) : (
           <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-            <img
-              key={`img_${item.post_id}_${activeSlide}_${getSlideSrc()}`}
-              src={getSlideSrc()}
-              alt={`Media slide ${activeSlide + 1}`}
-              className="card-img"
-              referrerPolicy="no-referrer"
-              onError={(e) => {
-                const fallback = getSlideSrc() || item.display_url
-                if (fallback && !e.target.dataset.triedProxy) {
-                  e.target.dataset.triedProxy = 'true'
-                  e.target.src = `/api/v1/proxy/image?url=${encodeURIComponent(fallback)}`
-                }
-              }}
-            />
+            {isPostVideo && playableVideo ? (
+              <video
+                key={`vid_thumb_${item.post_id}_${activeSlide}_${playableVideo}`}
+                src={`${playableVideo}#t=0.001`}
+                poster={getSlideSrc() || undefined}
+                preload="metadata"
+                muted
+                playsInline
+                className="card-img"
+                style={{ objectFit: 'cover', width: '100%', height: '100%', pointerEvents: 'none' }}
+              />
+            ) : (
+              <img
+                key={`img_${item.post_id}_${activeSlide}_${getSlideSrc()}`}
+                src={getSlideSrc()}
+                alt={`Media slide ${activeSlide + 1}`}
+                className="card-img"
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  const fallback = getSlideSrc() || item.display_url
+                  if (fallback && !e.target.dataset.triedProxy) {
+                    e.target.dataset.triedProxy = 'true'
+                    e.target.src = `/api/v1/proxy/image?url=${encodeURIComponent(fallback)}`
+                  }
+                }}
+              />
+            )}
             {isPostVideo && (
               <button
                 onClick={handlePlayVideo}

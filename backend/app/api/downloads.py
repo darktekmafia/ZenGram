@@ -1,6 +1,7 @@
 import os
 import uuid
 import datetime
+import logging
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +10,8 @@ from backend.app.database import get_db
 from backend.app.models import MediaItem, DownloadJob
 from backend.app.schemas import MediaItemResponse, BulkDownloadRequest, DownloadJobResponse
 from backend.app.services.downloader import downloader
+
+logger = logging.getLogger("instasave.downloads")
 
 router = APIRouter(prefix="/downloads", tags=["Downloads"])
 
@@ -71,6 +74,7 @@ async def process_bulk_download_job(job_id: str, post_ids: List[str], category_t
             from backend.app.models import UserSession
             us_res = await db.execute(select(UserSession).where(UserSession.is_active == True))
             us = us_res.scalars().first()
+            cookie = us.session_cookie if us and us.session_cookie != "dummy_session_cookie" else None
             from backend.app.models import AppSettings
             s_res = await db.execute(select(AppSettings).where(AppSettings.id == 1))
             app_s = s_res.scalars().first()
