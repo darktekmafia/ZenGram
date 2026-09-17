@@ -7,7 +7,7 @@ import ConsoleModal from './components/ConsoleModal'
 import BatchConfigModal from './components/BatchConfigModal'
 import UpdateModal from './components/UpdateModal'
 import ProfileAvatar from './components/ProfileAvatar'
-import { Download, RefreshCw, Layers, CheckCircle2, Shield, Eye, EyeOff, Users, UserCheck, Key, Settings as SettingsIcon, HardDrive, RotateCcw, Trash2, AlertCircle, ExternalLink, FolderDown, Clock, Loader2, Activity, Terminal, Sparkles, GitBranch, TerminalSquare } from 'lucide-react'
+import { Download, RefreshCw, Layers, CheckCircle2, Shield, Eye, EyeOff, Users, UserCheck, Key, Settings as SettingsIcon, HardDrive, RotateCcw, Trash2, AlertCircle, ExternalLink, FolderDown, Clock, Loader2, Activity, Terminal, Sparkles, GitBranch, TerminalSquare, ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
@@ -38,6 +38,47 @@ export default function App() {
   const [systemVersion, setSystemVersion] = useState(null)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false)
+  const [expandedSections, setExpandedSections] = useState({
+    session: false,
+    storage: false,
+    maintenance: false,
+    version: false
+  })
+  const [highlightedSection, setHighlightedSection] = useState(null)
+
+  const toggleSection = (key) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [key]: !prev[key]
+    }))
+  }
+
+  const setAllSections = (expand) => {
+    setExpandedSections({
+      session: expand,
+      storage: expand,
+      maintenance: expand,
+      version: expand
+    })
+  }
+
+  const navigateToSettingsSection = (sectionKey) => {
+    setActiveTab('settings')
+    setExpandedSections((prev) => ({
+      ...prev,
+      [sectionKey]: true
+    }))
+    setHighlightedSection(sectionKey)
+    setTimeout(() => {
+      const el = document.getElementById(`settings-section-${sectionKey}`)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }, 120)
+    setTimeout(() => {
+      setHighlightedSection(null)
+    }, 2500)
+  }
 
   // Fetch Feed Media
   const fetchFeed = async () => {
@@ -496,6 +537,7 @@ export default function App() {
         }}
         systemVersion={systemVersion}
         onOpenUpdateModal={() => setIsUpdateModalOpen(true)}
+        onNavigateToSettings={navigateToSettingsSection}
       />
 
       <main className="main-content">
@@ -511,6 +553,7 @@ export default function App() {
           syncing={syncing}
           systemVersion={systemVersion}
           onOpenUpdateModal={() => setIsUpdateModalOpen(true)}
+          onNavigateToSettings={navigateToSettingsSection}
         />
 
         <div className="content-body">
@@ -1129,22 +1172,62 @@ export default function App() {
           )}
 
           {activeTab === 'settings' && (
-            <div className="settings-container">
-              <div className="settings-grid">
-                
-                {/* Column 1 - Card 1: User Session & Authentication */}
-                <div className="settings-card">
-                  <div>
-                    <div className="settings-card-header">
-                      <div className="settings-card-title">
-                        <Key size={19} className="text-purple-400" />
-                        <span>User Session & Credentials</span>
-                      </div>
-                      <span className={`settings-badge ${userSession?.is_active ? 'success' : 'neutral'}`}>
-                        {userSession?.is_active ? <><Shield size={12} /> Connected (@{userSession?.username || 'admin'})</> : 'No Active Session'}
-                      </span>
-                    </div>
+            <div className="settings-accordion-container">
+              <div className="settings-toolbar">
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Application Settings</h2>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.84rem', margin: '3px 0 0 0' }}>
+                    Configure credentials, storage location, background queues, updates, and database maintenance.
+                  </p>
+                </div>
 
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    style={{ fontSize: '0.8rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    onClick={() => {
+                      const allOpen = Object.values(expandedSections).every(Boolean)
+                      setAllSections(!allOpen)
+                    }}
+                  >
+                    <ChevronsUpDown size={14} />
+                    <span>{Object.values(expandedSections).every(Boolean) ? 'Collapse All' : 'Expand All'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Section 1: User Session & Credentials */}
+              <div
+                id="settings-section-session"
+                className={`settings-accordion-item ${expandedSections.session ? 'is-expanded' : ''} ${highlightedSection === 'session' ? 'highlight-section' : ''}`}
+              >
+                <div
+                  className="settings-accordion-header"
+                  onClick={() => toggleSection('session')}
+                >
+                  <div className="settings-accordion-header-left">
+                    <div className="settings-accordion-icon" style={{ background: 'rgba(168, 85, 247, 0.15)', color: '#c084fc' }}>
+                      <Key size={19} />
+                    </div>
+                    <div className="settings-accordion-title-group">
+                      <h3>User Session & Instagram Credentials</h3>
+                      <p>Session cookie for private media, followed accounts, stories, and rate limit protection</p>
+                    </div>
+                  </div>
+
+                  <div className="settings-accordion-header-right">
+                    <span className={`settings-badge ${userSession?.is_active ? 'success' : 'neutral'}`}>
+                      {userSession?.is_active ? <><Shield size={12} /> Connected (@{userSession?.username || 'admin'})</> : 'No Active Session'}
+                    </span>
+                    <div className="settings-accordion-chevron">
+                      <ChevronDown size={18} />
+                    </div>
+                  </div>
+                </div>
+
+                {expandedSections.session && (
+                  <div className="settings-accordion-body">
                     <form onSubmit={handleSaveSession}>
                       <div className="settings-form-group">
                         <label className="settings-label">
@@ -1190,21 +1273,40 @@ export default function App() {
                       </div>
                     </form>
                   </div>
+                )}
+              </div>
+
+              {/* Section 2: Engine & Storage Settings */}
+              <div
+                id="settings-section-storage"
+                className={`settings-accordion-item ${expandedSections.storage ? 'is-expanded' : ''} ${highlightedSection === 'storage' ? 'highlight-section' : ''}`}
+              >
+                <div
+                  className="settings-accordion-header"
+                  onClick={() => toggleSection('storage')}
+                >
+                  <div className="settings-accordion-header-left">
+                    <div className="settings-accordion-icon" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa' }}>
+                      <HardDrive size={19} />
+                    </div>
+                    <div className="settings-accordion-title-group">
+                      <h3>Engine, Queue & Storage Configuration</h3>
+                      <p>Download folder path, batch scraping depth, parallel download workers, and cooldowns</p>
+                    </div>
+                  </div>
+
+                  <div className="settings-accordion-header-right">
+                    <span className="settings-badge neutral">
+                      Local Storage
+                    </span>
+                    <div className="settings-accordion-chevron">
+                      <ChevronDown size={18} />
+                    </div>
+                  </div>
                 </div>
 
-                {/* Column 2 - Card 2: Engine & Storage Settings */}
-                <div className="settings-card">
-                  <div>
-                    <div className="settings-card-header">
-                      <div className="settings-card-title">
-                        <HardDrive size={19} className="text-blue-400" />
-                        <span>Engine & Storage Settings</span>
-                      </div>
-                      <span className="settings-badge neutral">
-                        Local Storage
-                      </span>
-                    </div>
-
+                {expandedSections.storage && (
+                  <div className="settings-accordion-body">
                     <form onSubmit={handleSaveConfig}>
                       <div className="settings-form-group">
                         <label className="settings-label">Media Download Directory</label>
@@ -1215,7 +1317,7 @@ export default function App() {
                           style={{ margin: 0 }}
                         />
                         <p className="settings-description">
-                          Directory on Fedora 44 filesystem where archived media and carousel zip bundles are saved.
+                          Directory on your filesystem where archived media and carousel zip bundles are saved.
                         </p>
                       </div>
 
@@ -1312,27 +1414,46 @@ export default function App() {
                       </div>
                     </form>
                   </div>
+                )}
+              </div>
+
+              {/* Section 3: Database & Media Maintenance */}
+              <div
+                id="settings-section-maintenance"
+                className={`settings-accordion-item ${expandedSections.maintenance ? 'is-expanded' : ''} ${highlightedSection === 'maintenance' ? 'highlight-section' : ''}`}
+              >
+                <div
+                  className="settings-accordion-header"
+                  onClick={() => toggleSection('maintenance')}
+                >
+                  <div className="settings-accordion-header-left">
+                    <div className="settings-accordion-icon" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399' }}>
+                      <FolderDown size={19} />
+                    </div>
+                    <div className="settings-accordion-title-group">
+                      <h3>Database & Storage Maintenance</h3>
+                      <p>Verify disk media integrity, audit saved files, and database record synchronization</p>
+                    </div>
+                  </div>
+
+                  <div className="settings-accordion-header-right">
+                    <span className="settings-badge neutral">
+                      Maintenance
+                    </span>
+                    <div className="settings-accordion-chevron">
+                      <ChevronDown size={18} />
+                    </div>
+                  </div>
                 </div>
 
-                {/* Column 1 - Card 3: Storage Maintenance */}
-                <div className="settings-card">
-                  <div>
-                    <div className="settings-card-header">
-                      <div className="settings-card-title">
-                        <FolderDown size={19} className="text-emerald-400" />
-                        <span>Database & Media Maintenance</span>
-                      </div>
-                      <span className="settings-badge neutral">
-                        Maintenance
-                      </span>
-                    </div>
-
+                {expandedSections.maintenance && (
+                  <div className="settings-accordion-body">
                     <div className="maintenance-item">
                       <div style={{ fontWeight: '600', fontSize: '0.88rem', color: 'var(--text-main)' }}>
                         Verify Disk Media Files
                       </div>
                       <p className="settings-description">
-                        Scans your download folder (<code style={{ background: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: '4px' }}>~/Downloads/InstaSave</code>) to verify that saved files exist. Reconciles deleted files so you can re-download them.
+                        Scans your download folder (<code style={{ background: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: '4px' }}>{downloadDirInput}</code>) to verify that saved files exist. Reconciles deleted files so you can re-download them.
                       </p>
                       <div style={{ marginTop: '6px' }}>
                         <button
@@ -1381,21 +1502,40 @@ export default function App() {
                       )}
                     </div>
                   </div>
+                )}
+              </div>
+
+              {/* Section 4: Version, Software Updates & System Environment */}
+              <div
+                id="settings-section-version"
+                className={`settings-accordion-item ${expandedSections.version ? 'is-expanded' : ''} ${highlightedSection === 'version' ? 'highlight-section' : ''}`}
+              >
+                <div
+                  className="settings-accordion-header"
+                  onClick={() => toggleSection('version')}
+                >
+                  <div className="settings-accordion-header-left">
+                    <div className="settings-accordion-icon" style={{ background: 'rgba(6, 182, 212, 0.15)', color: '#22d3ee' }}>
+                      <Activity size={19} />
+                    </div>
+                    <div className="settings-accordion-title-group">
+                      <h3>Version, Software Updates & System Environment</h3>
+                      <p>InstaSave version, git commit history, operating environment, and live update checking</p>
+                    </div>
+                  </div>
+
+                  <div className="settings-accordion-header-right">
+                    <span className={`settings-badge ${systemVersion?.update_available ? 'warning' : 'success'}`} style={systemVersion?.update_available ? { background: 'rgba(167,139,250,0.2)', color: '#c4b5fd', border: '1px solid rgba(167,139,250,0.4)' } : {}}>
+                      {systemVersion?.update_available ? <><Sparkles size={12} /> Update Available (v{systemVersion.latest_version})</> : '● Up to date'}
+                    </span>
+                    <div className="settings-accordion-chevron">
+                      <ChevronDown size={18} />
+                    </div>
+                  </div>
                 </div>
 
-                {/* Column 2 - Card 4: System Status & Version Tracker */}
-                <div className="settings-card">
-                  <div>
-                    <div className="settings-card-header">
-                      <div className="settings-card-title">
-                        <Activity size={19} className="text-cyan-400" />
-                        <span>Version & System Environment</span>
-                      </div>
-                      <span className={`settings-badge ${systemVersion?.update_available ? 'warning' : 'success'}`} style={systemVersion?.update_available ? { background: 'rgba(167,139,250,0.2)', color: '#c4b5fd', border: '1px solid rgba(167,139,250,0.4)' } : {}}>
-                        {systemVersion?.update_available ? <><Sparkles size={12} /> Update Available (v{systemVersion.latest_version})</> : '● Up to date'}
-                      </span>
-                    </div>
-
+                {expandedSections.version && (
+                  <div className="settings-accordion-body">
                     <table className="info-table">
                       <tbody>
                         <tr>
@@ -1411,7 +1551,7 @@ export default function App() {
                         </tr>
                         <tr>
                           <td className="label">Git Commit & Branch</td>
-                          <td className="value" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <td className="value" style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end' }}>
                             <code style={{ background: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: '4px', fontFamily: 'monospace' }}>
                               #{systemVersion?.commit_hash || 'HEAD'}
                             </code>
@@ -1505,9 +1645,9 @@ export default function App() {
                       </div>
                     )}
                   </div>
-                </div>
-
+                )}
               </div>
+
             </div>
           )}
         </div>

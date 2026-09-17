@@ -875,4 +875,202 @@ body {
   font-family: inherit;
 }
 
+/* =========================================================
+   Sidebar Version Footer & Update Tracker Pill
+   ========================================================= */
+.sidebar-version-footer {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sidebar-version-footer:hover {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(96, 165, 250, 0.4);
+}
+
+.sidebar-version-footer .version-label {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.sidebar-version-footer .version-hash {
+  font-size: 0.68rem;
+  font-family: monospace;
+  color: var(--text-muted);
+}
+
+.sidebar-version-footer .update-available-pill {
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.35);
+}
+
+.sidebar-version-footer .up-to-date-indicator {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.7rem;
+  color: #10b981;
+  font-weight: 500;
+}
+
+.sidebar-version-footer .up-to-date-indicator .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #10b981;
+}
+
+/* =========================================================
+   Expandable / Collapsible Settings Accordion System
+   ========================================================= */
+.settings-accordion-container {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding-bottom: 50px;
+}
+
+.settings-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  padding: 0 4px;
+}
+
+.settings-accordion-item {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.settings-accordion-item:hover {
+  border-color: #384154;
+}
+
+.settings-accordion-item.is-expanded {
+  border-color: rgba(96, 165, 250, 0.35);
+  box-shadow: var(--shadow-lg);
+}
+
+.settings-accordion-item.highlight-section {
+  animation: sectionGlow 2s ease-out;
+}
+
+@keyframes sectionGlow {
+  0% {
+    border-color: #a78bfa;
+    box-shadow: 0 0 20px rgba(167, 139, 250, 0.4);
+  }
+  100% {
+    border-color: rgba(96, 165, 250, 0.35);
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+.settings-accordion-header {
+  padding: 18px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  background: var(--bg-card);
+  transition: background 0.15s ease;
+}
+
+.settings-accordion-header:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.settings-accordion-header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.settings-accordion-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.settings-accordion-title-group h3 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-accordion-title-group p {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 2px 0 0 0;
+}
+
+.settings-accordion-header-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.settings-accordion-chevron {
+  color: var(--text-muted);
+  transition: transform 0.25s ease;
+  display: flex;
+  align-items: center;
+}
+
+.settings-accordion-item.is-expanded .settings-accordion-chevron {
+  transform: rotate(180deg);
+  color: var(--text-main);
+}
+
+.settings-accordion-body {
+  padding: 16px 24px 24px 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.1);
+  animation: accordionFadeIn 0.2s ease;
+}
+
+@keyframes accordionFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+
 

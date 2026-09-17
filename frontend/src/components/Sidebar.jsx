@@ -10,7 +10,8 @@ export default function Sidebar({
   onOpenDockedConsole,
   onCloseDockedConsole,
   systemVersion,
-  onOpenUpdateModal
+  onOpenUpdateModal,
+  onNavigateToSettings
 }) {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -36,14 +37,14 @@ export default function Sidebar({
             <span
               className="brand-version"
               style={{ cursor: 'pointer' }}
-              onClick={onOpenUpdateModal}
-              title="Click to view version and system information"
+              onClick={() => onNavigateToSettings ? onNavigateToSettings('version') : setActiveTab('settings')}
+              title="Click to view version in Settings"
             >
               v{systemVersion?.version || '1.0.0'}
             </span>
             {systemVersion?.update_available && (
               <span
-                onClick={onOpenUpdateModal}
+                onClick={() => onNavigateToSettings ? onNavigateToSettings('version') : setActiveTab('settings')}
                 style={{
                   fontSize: '0.65rem',
                   fontWeight: '700',
@@ -57,7 +58,7 @@ export default function Sidebar({
                   gap: '3px'
                 }}
                 className="animate-pulse"
-                title={`New update v${systemVersion.latest_version || ''} available! Click to view.`}
+                title={`New update v${systemVersion.latest_version || ''} available! Click to view in Settings.`}
               >
                 <Sparkles size={10} /> Update
               </span>
@@ -170,25 +171,46 @@ export default function Sidebar({
         <div className="user-avatar">{initial}</div>
         <div className="user-info">
           <span className="user-name">{displayName}</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
-            <span className="user-role" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <ShieldCheck size={12} /> {systemVersion?.distro_name?.split(' ')[0] || 'Linux'} Active
-            </span>
-            <span style={{ color: 'var(--border-color)', fontSize: '0.7rem' }}>•</span>
-            <span
-              style={{
-                fontSize: '0.68rem',
-                color: systemVersion?.update_available ? '#a78bfa' : 'var(--text-muted)',
-                cursor: 'pointer',
-                fontFamily: 'monospace'
-              }}
-              onClick={onOpenUpdateModal}
-              title={`Git commit ${systemVersion?.commit_hash || 'HEAD'}. Click for details.`}
-            >
-              {systemVersion?.commit_hash ? `#${systemVersion.commit_hash}` : 'v1.0.0'}
-            </span>
-          </div>
+          <span className="user-role" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+            <ShieldCheck size={12} /> {systemVersion?.distro_name?.split(' ')[0] || 'Linux'} Active
+          </span>
         </div>
+      </div>
+
+      {/* Dedicated Bottom Version & Update Tracker Footer */}
+      <div
+        className="sidebar-version-footer"
+        onClick={() => {
+          if (onNavigateToSettings) {
+            onNavigateToSettings('version')
+          } else {
+            setActiveTab('settings')
+          }
+        }}
+        title={
+          systemVersion?.update_available
+            ? `Update available: v${systemVersion.latest_version}. Click to open Settings & view update instructions.`
+            : `InstaSave v${systemVersion?.version || '1.0.0'} (Up to date). Click to view in Settings.`
+        }
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span className="version-label">
+            v{systemVersion?.version || '1.0.0'}
+          </span>
+          <span className="version-hash">
+            #{systemVersion?.commit_hash || 'HEAD'}
+          </span>
+        </div>
+
+        {systemVersion?.update_available ? (
+          <span className="update-available-pill animate-pulse">
+            <Sparkles size={11} /> Update
+          </span>
+        ) : (
+          <span className="up-to-date-indicator">
+            <span className="dot" /> Up to date
+          </span>
+        )}
       </div>
     </aside>
   )
