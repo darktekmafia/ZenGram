@@ -6,8 +6,9 @@ import WatchedProfilesModal from './components/WatchedProfilesModal'
 import ConsoleModal from './components/ConsoleModal'
 import BatchConfigModal from './components/BatchConfigModal'
 import UpdateModal from './components/UpdateModal'
+import DevToolsGuideModal from './components/DevToolsGuideModal'
 import ProfileAvatar from './components/ProfileAvatar'
-import { Download, RefreshCw, Layers, CheckCircle2, Shield, Eye, EyeOff, Users, UserCheck, Key, Settings as SettingsIcon, HardDrive, RotateCcw, Trash2, AlertCircle, ExternalLink, FolderDown, Clock, Loader2, Activity, Terminal, Sparkles, GitBranch, TerminalSquare, ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react'
+import { Download, RefreshCw, Layers, CheckCircle2, Shield, Eye, EyeOff, Users, UserCheck, Key, Settings as SettingsIcon, HardDrive, RotateCcw, Trash2, AlertCircle, ExternalLink, FolderDown, Clock, Loader2, Activity, Terminal, Sparkles, GitBranch, TerminalSquare, ChevronDown, ChevronUp, ChevronsUpDown, Monitor, BookOpen, AlertTriangle } from 'lucide-react'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
@@ -38,6 +39,10 @@ export default function App() {
   const [systemVersion, setSystemVersion] = useState(null)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false)
+  const [isDevToolsGuideOpen, setIsDevToolsGuideOpen] = useState(false)
+  const [interactiveLoginState, setInteractiveLoginState] = useState(null)
+  const [isStartingBrowserLogin, setIsStartingBrowserLogin] = useState(false)
+  const [displayInfo, setDisplayInfo] = useState(null)
   const [expandedSections, setExpandedSections] = useState({
     session: false,
     storage: false,
@@ -223,9 +228,50 @@ export default function App() {
     fetchRateLimit()
     fetchAppSettings()
     fetchSystemVersion()
+    fetchDisplayInfo()
     const interval = setInterval(fetchRateLimit, 30000)
     return () => clearInterval(interval)
   }, [contentType, searchQuery, selectedUserFilter, activeTab])
+
+  // Fetch Display Info for Browser Mode
+  const fetchDisplayInfo = async () => {
+    try {
+      const res = await fetch('/api/v1/auth/display-info')
+      if (res.ok) {
+        const data = await res.json()
+        setDisplayInfo(data)
+      }
+    } catch (err) {
+      console.error('Error fetching display info:', err)
+    }
+  }
+
+  // Interactive Login Poller
+  useEffect(() => {
+    let interval = null
+    if (interactiveLoginState?.is_running) {
+      interval = setInterval(async () => {
+        try {
+          const res = await fetch('/api/v1/auth/interactive-login/status')
+          if (res.ok) {
+            const data = await res.json()
+            setInteractiveLoginState(data)
+            if (!data.is_running) {
+              clearInterval(interval)
+              if (data.status === 'success') {
+                await fetchUserSession()
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Error polling login status:', err)
+        }
+      }, 2000)
+    }
+    return () => {
+      if (interval) clearInterval(interval)
+    }
+  }, [interactiveLoginState?.is_running])
 
   const handleRunSync = async () => {
     setSyncing(true)
@@ -359,6 +405,35 @@ export default function App() {
     } catch (err) {
       console.error('Error saving session cookie:', err)
       setSessionSaveStatus('error')
+    }
+  }
+
+  const handleStartInteractiveLogin = async () => {
+    setIsStartingBrowserLogin(true)
+    try {
+      const res = await fetch('/api/v1/auth/interactive-login', { method: 'POST' })
+      const data = await res.json()
+      setInteractiveLoginState(data)
+      if (data.status === 'headless_detected') {
+        setIsDevToolsGuideOpen(true)
+      }
+    } catch (err) {
+      console.error('Failed to start interactive login:', err)
+      setInteractiveLoginState({
+        status: 'error',
+        message: 'Failed to launch browser login service.'
+      })
+    } finally {
+      setIsStartingBrowserLogin(false)
+    }
+  }
+
+  const handleCancelInteractiveLogin = async () => {
+    try {
+      await fetch('/api/v1/auth/interactive-login/cancel', { method: 'POST' })
+      setInteractiveLoginState(null)
+    } catch (err) {
+      console.error('Failed to cancel interactive login:', err)
     }
   }
 
@@ -1228,6 +1303,154 @@ export default function App() {
 
                 {expandedSections.session && (
                   <div className="settings-accordion-body">
+                    {/* Top Action Tools Banner */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: '12px',
+                        padding: '14px 18px',
+                        background: 'rgba(255, 255, 255, 0.02)',
+                        border: '1px solid rgba(255, 255, 255, 0.06)',
+                        borderRadius: 'var(--radius-sm)',
+                        marginBottom: '18px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '8px 16px',
+                            fontSize: '0.85rem',
+                            background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+                            border: 'none',
+                            boxShadow: '0 4px 14px rgba(59, 130, 246, 0.3)'
+                          }}
+                          onClick={handleStartInteractiveLogin}
+                          disabled={interactiveLoginState?.is_running || isStartingBrowserLogin}
+                          title="Opens a native Chromium browser window on your desktop to log in and automatically extract session cookies."
+                        >
+                          {interactiveLoginState?.is_running || isStartingBrowserLogin ? (
+                            <RefreshCw size={15} className="animate-spin" />
+                          ) : (
+                            <Sparkles size={15} />
+                          )}
+                          <span>
+                            {interactiveLoginState?.is_running ? 'Browser Login Active...' : 'Log In via Browser Window'}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '8px 14px',
+                            fontSize: '0.85rem'
+                          }}
+                          onClick={() => setIsDevToolsGuideOpen(true)}
+                          title="View step-by-step instructions for extracting sessionid using browser DevTools (Chrome, Firefox, Safari, LXC)."
+                        >
+                          <BookOpen size={15} />
+                          <span>DevTools Extraction Guide</span>
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span
+                          style={{
+                            fontSize: '0.72rem',
+                            padding: '4px 10px',
+                            borderRadius: '16px',
+                            background: displayInfo?.has_display ? 'rgba(16, 185, 129, 0.12)' : 'rgba(59, 130, 246, 0.12)',
+                            color: displayInfo?.has_display ? '#34d399' : '#60a5fa',
+                            border: displayInfo?.has_display ? '1px solid rgba(16, 185, 129, 0.25)' : '1px solid rgba(59, 130, 246, 0.25)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            fontWeight: 500
+                          }}
+                        >
+                          <Monitor size={12} />
+                          {displayInfo?.has_display ? `Desktop Display (${displayInfo.display_var})` : 'Headless Server / LXC'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Interactive Login Status Feedback Card */}
+                    {interactiveLoginState && (
+                      <div className={`interactive-login-box ${interactiveLoginState.is_running ? 'is-active' : ''}`}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          {interactiveLoginState.is_running ? (
+                            <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(167, 139, 250, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a78bfa' }}>
+                              <RefreshCw size={15} className="animate-spin" />
+                            </div>
+                          ) : interactiveLoginState.status === 'success' ? (
+                            <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#34d399' }}>
+                              <CheckCircle2 size={16} />
+                            </div>
+                          ) : (
+                            <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(239, 68, 68, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f87171' }}>
+                              <AlertCircle size={16} />
+                            </div>
+                          )}
+
+                          <div>
+                            <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                              {interactiveLoginState.is_running ? 'Interactive Browser Login in Progress' : interactiveLoginState.status === 'success' ? 'Authentication Successful!' : 'Browser Login Notice'}
+                            </div>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              {interactiveLoginState.message}
+                            </div>
+                          </div>
+                        </div>
+
+                        {interactiveLoginState.is_running ? (
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            style={{ fontSize: '0.78rem', padding: '5px 10px', color: '#f87171', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+                            onClick={handleCancelInteractiveLogin}
+                          >
+                            Cancel Login
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            style={{ fontSize: '0.78rem', padding: '5px 10px' }}
+                            onClick={() => setInteractiveLoginState(null)}
+                          >
+                            Dismiss
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Divider */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        margin: '18px 0 16px 0'
+                      }}
+                    >
+                      <div style={{ flex: 1, height: '1px', background: 'rgba(255, 255, 255, 0.08)' }} />
+                      <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Or Enter Session Cookie Manually
+                      </span>
+                      <div style={{ flex: 1, height: '1px', background: 'rgba(255, 255, 255, 0.08)' }} />
+                    </div>
+
                     <form onSubmit={handleSaveSession}>
                       <div className="settings-form-group">
                         <label className="settings-label">
@@ -1695,6 +1918,11 @@ export default function App() {
         systemVersion={systemVersion}
         onCheckUpdate={() => handleCheckUpdate()}
         checkingUpdate={checkingUpdate}
+      />
+
+      <DevToolsGuideModal
+        isOpen={isDevToolsGuideOpen}
+        onClose={() => setIsDevToolsGuideOpen(false)}
       />
     </div>
   )
