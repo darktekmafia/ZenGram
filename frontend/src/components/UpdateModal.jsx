@@ -97,28 +97,37 @@ export default function UpdateModal({
           </div>
         </div>
 
-        {/* Environment Details */}
+        {/* Environment & Commit Details */}
         <div style={{
           fontSize: '0.82rem',
           color: 'var(--text-muted)',
           display: 'flex',
           flexDirection: 'column',
-          gap: '6px',
+          gap: '10px',
           marginBottom: '20px',
           background: 'rgba(255,255,255,0.02)',
-          padding: '12px 14px',
+          padding: '14px',
           borderRadius: '8px',
           border: '1px solid var(--border-color)'
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>Environment:</span>
-            <span style={{ color: 'var(--text-main)', fontWeight: '500' }}>{systemVersion?.distro_name || 'Linux'}</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: '500' }}>Operating Environment:</span>
+            <span style={{ color: 'var(--text-main)', fontWeight: '600' }}>{systemVersion?.distro_name || 'Linux'}</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>Commit Message:</span>
-            <span style={{ color: 'var(--text-main)', fontStyle: 'italic', maxWidth: '300px', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '8px' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Latest Commit Message:</div>
+            <div style={{
+              color: 'var(--text-main)',
+              fontStyle: 'italic',
+              lineHeight: '1.45',
+              background: 'var(--bg-tertiary)',
+              padding: '8px 12px',
+              borderRadius: '6px',
+              border: '1px solid rgba(255,255,255,0.05)',
+              wordBreak: 'break-word'
+            }}>
               "{systemVersion?.commit_message || 'Latest changes'}"
-            </span>
+            </div>
           </div>
         </div>
 
