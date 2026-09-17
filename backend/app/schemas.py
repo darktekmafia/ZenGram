@@ -12,6 +12,7 @@ class UserSessionResponse(UserSessionBase):
     id: int
     is_active: bool
     session_cookie: Optional[str] = None
+    profile_pic_url: Optional[str] = None
     created_at: datetime.datetime
     last_validated_at: Optional[datetime.datetime] = None
 

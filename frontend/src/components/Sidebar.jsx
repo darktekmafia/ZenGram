@@ -1,4 +1,5 @@
 import React from 'react'
+import ProfileAvatar from './ProfileAvatar'
 import { LayoutDashboard, Users, Eye, Download, ListOrdered, Settings, ShieldCheck, Terminal, X, Sparkles, GitBranch } from 'lucide-react'
 
 export default function Sidebar({
@@ -168,7 +169,12 @@ export default function Sidebar({
       )}
 
       <div className="user-status-card" style={dockedJob ? { marginTop: '0' } : {}}>
-        <div className="user-avatar">{initial}</div>
+        <ProfileAvatar
+          username={userSession?.username || 'admin'}
+          profilePicUrl={userSession?.profile_pic_url}
+          className="user-avatar"
+          style={{ width: '38px', height: '38px', borderRadius: '10px', objectFit: 'cover', flexShrink: 0 }}
+        />
         <div className="user-info">
           <span className="user-name">{displayName}</span>
           <span className="user-role" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>

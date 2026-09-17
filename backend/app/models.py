@@ -10,6 +10,7 @@ class UserSession(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     session_cookie: Mapped[str] = mapped_column(Text, nullable=False)
+    profile_pic_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
     last_validated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, nullable=True)

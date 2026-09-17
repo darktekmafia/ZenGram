@@ -50,6 +50,10 @@ async def init_db():
             await conn.execute(text("ALTER TABLE app_settings ADD COLUMN max_download_workers INTEGER DEFAULT 2"))
         except Exception:
             pass
+        try:
+            await conn.execute(text("ALTER TABLE user_sessions ADD COLUMN profile_pic_url TEXT"))
+        except Exception:
+            pass
 
 async def get_db():
     async with AsyncSessionLocal() as session:

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from backend.app.database import get_db, AsyncSessionLocal
-from backend.app.models import UserSession
+from backend.app.models import UserSession, WatchedProfile
 from backend.app.schemas import UserSessionCreate, UserSessionResponse
 
 logger = logging.getLogger(__name__)
@@ -63,6 +63,15 @@ async def get_current_session(db: AsyncSession = Depends(get_db)):
         db.add(session)
         await db.commit()
         await db.refresh(session)
+    else:
+        # If profile_pic_url is missing, check if available in watched_profiles
+        if not session.profile_pic_url and session.username and session.username != "admin":
+            wp_res = await db.execute(select(WatchedProfile).where(WatchedProfile.username == session.username))
+            wp = wp_res.scalars().first()
+            if wp and wp.profile_pic_url:
+                session.profile_pic_url = wp.profile_pic_url
+                await db.commit()
+                await db.refresh(session)
     return session
 
 
@@ -151,10 +160,12 @@ async def _run_interactive_login_task():
                 await asyncio.sleep(2.5)
 
                 detected_username = None
+                detected_avatar = None
                 try:
-                    js_extract_username = """
+                    js_extract_profile = """
                     () => {
-                        // 1. Inspect sidebar profile link containing the avatar img
+                        let username = null;
+                        let profilePicUrl = null;
                         const links = Array.from(document.querySelectorAll('a[href]'));
                         for (const a of links) {
                             const img = a.querySelector('img[alt*="profile picture"]') || a.querySelector("img[alt*='profile picture']");
@@ -162,16 +173,19 @@ async def _run_interactive_login_task():
                                 const alt = img.getAttribute('alt') || '';
                                 const match = alt.match(/^(.+?)'s profile picture$/i);
                                 if (match && match[1]) {
-                                    return match[1].trim();
+                                    username = match[1].trim();
+                                    profilePicUrl = img.getAttribute('src');
+                                    return { username, profilePicUrl };
                                 }
                                 const href = a.getAttribute('href') || '';
                                 const clean = href.replace(/^\\/|\\/$/g, '').split('?')[0].split('/')[0];
                                 if (clean && !['explore', 'direct', 'reels', 'stories', 'accounts', 'settings'].includes(clean)) {
-                                    return clean;
+                                    username = clean;
+                                    profilePicUrl = img.getAttribute('src');
+                                    return { username, profilePicUrl };
                                 }
                             }
                         }
-                        // 2. Inspect navigation container anchors
                         const nav = document.querySelector('nav') || document.querySelector('div[role="navigation"]') || document.querySelector('header');
                         if (nav) {
                             const navAnchors = Array.from(nav.querySelectorAll('a[href]'));
@@ -179,14 +193,20 @@ async def _run_interactive_login_task():
                                 const href = a.getAttribute('href') || '';
                                 const clean = href.replace(/^\\/|\\/$/g, '').split('?')[0].split('/')[0];
                                 if (clean && !['explore', 'direct', 'reels', 'stories', 'accounts', 'your_activity', 'settings'].includes(clean)) {
-                                    return clean;
+                                    username = clean;
+                                    const img = a.querySelector('img');
+                                    if (img) profilePicUrl = img.getAttribute('src');
+                                    return { username, profilePicUrl };
                                 }
                             }
                         }
-                        return null;
+                        return { username: null, profilePicUrl: null };
                     }
                     """
-                    detected_username = await page.evaluate(js_extract_username)
+                    profile_res = await page.evaluate(js_extract_profile)
+                    if isinstance(profile_res, dict):
+                        detected_username = profile_res.get("username")
+                        detected_avatar = profile_res.get("profilePicUrl")
                 except Exception as e:
                     logger.debug(f"Could not extract DOM username: {e}")
 
@@ -205,12 +225,15 @@ async def _run_interactive_login_task():
                     existing = result.scalars().first()
                     if existing:
                         existing.session_cookie = sessionid
+                        if detected_avatar:
+                            existing.profile_pic_url = detected_avatar
                         existing.is_active = True
                         existing.last_validated_at = datetime.datetime.utcnow()
                     else:
                         new_sess = UserSession(
                             username=detected_username,
                             session_cookie=sessionid,
+                            profile_pic_url=detected_avatar,
                             is_active=True,
                             last_validated_at=datetime.datetime.utcnow()
                         )
