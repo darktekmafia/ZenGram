@@ -137,30 +137,56 @@ async def _run_interactive_login_task():
 
             if sessionid and sessionid != "dummy_session_cookie":
                 interactive_login_state["status"] = "extracting"
-                interactive_login_state["message"] = "Login detected! Extracting account details and finalizing session..."
+                interactive_login_state["message"] = "Login detected! Extracting account profile & username..."
                 interactive_login_state["updated_at"] = datetime.datetime.utcnow().isoformat()
 
-                # Allow page state to settle for 2 seconds
-                await asyncio.sleep(2)
+                # Navigate to home feed if still on auth/onetap pages to populate navigation DOM
+                try:
+                    current_url = page.url
+                    if "accounts/login" in current_url or "accounts/onetap" in current_url or "onetap" in current_url:
+                        await page.goto("https://www.instagram.com/", wait_until="domcontentloaded", timeout=15000)
+                except Exception:
+                    pass
+
+                await asyncio.sleep(2.5)
 
                 detected_username = None
                 try:
-                    # Attempt to extract username from DOM
-                    detected_username = await page.evaluate("""() => {
-                        try {
-                            const profileAnchor = document.querySelector('svg[aria-label="Profile"]')?.closest('a') ||
-                                                   document.querySelector('svg[aria-label="Your profile"]')?.closest('a') ||
-                                                   document.querySelector('a[href*="/"][role="link"]');
-                            if (profileAnchor) {
-                                const href = profileAnchor.getAttribute('href') || '';
-                                const clean = href.replace(/^\\/|\\/$/g, '').split('/')[0];
-                                if (clean && !['explore', 'direct', 'reels', 'stories', 'accounts'].includes(clean)) {
+                    js_extract_username = """
+                    () => {
+                        // 1. Inspect sidebar profile link containing the avatar img
+                        const links = Array.from(document.querySelectorAll('a[href]'));
+                        for (const a of links) {
+                            const img = a.querySelector('img[alt*="profile picture"]') || a.querySelector("img[alt*='profile picture']");
+                            if (img) {
+                                const alt = img.getAttribute('alt') || '';
+                                const match = alt.match(/^(.+?)'s profile picture$/i);
+                                if (match && match[1]) {
+                                    return match[1].trim();
+                                }
+                                const href = a.getAttribute('href') || '';
+                                const clean = href.replace(/^\\/|\\/$/g, '').split('?')[0].split('/')[0];
+                                if (clean && !['explore', 'direct', 'reels', 'stories', 'accounts', 'settings'].includes(clean)) {
                                     return clean;
                                 }
                             }
-                        } catch (e) {}
+                        }
+                        // 2. Inspect navigation container anchors
+                        const nav = document.querySelector('nav') || document.querySelector('div[role="navigation"]') || document.querySelector('header');
+                        if (nav) {
+                            const navAnchors = Array.from(nav.querySelectorAll('a[href]'));
+                            for (const a of navAnchors) {
+                                const href = a.getAttribute('href') || '';
+                                const clean = href.replace(/^\\/|\\/$/g, '').split('?')[0].split('/')[0];
+                                if (clean && !['explore', 'direct', 'reels', 'stories', 'accounts', 'your_activity', 'settings'].includes(clean)) {
+                                    return clean;
+                                }
+                            }
+                        }
                         return null;
-                    }""")
+                    }
+                    """
+                    detected_username = await page.evaluate(js_extract_username)
                 except Exception as e:
                     logger.debug(f"Could not extract DOM username: {e}")
 
@@ -169,7 +195,12 @@ async def _run_interactive_login_task():
 
                 # Persist directly to DB
                 async with AsyncSessionLocal() as db:
-                    # Look for existing session or placeholder
+                    # Deactivate old sessions to ensure single active authenticated user
+                    old_sessions = await db.execute(select(UserSession))
+                    for s in old_sessions.scalars().all():
+                        s.is_active = False
+
+                    # Look for existing session with this username or create new
                     result = await db.execute(select(UserSession).where(UserSession.username == detected_username))
                     existing = result.scalars().first()
                     if existing:
@@ -177,22 +208,13 @@ async def _run_interactive_login_task():
                         existing.is_active = True
                         existing.last_validated_at = datetime.datetime.utcnow()
                     else:
-                        # Check if default 'admin' placeholder exists to replace
-                        placeholder_result = await db.execute(select(UserSession).where(UserSession.username == "admin"))
-                        placeholder = placeholder_result.scalars().first()
-                        if placeholder:
-                            placeholder.username = detected_username
-                            placeholder.session_cookie = sessionid
-                            placeholder.is_active = True
-                            placeholder.last_validated_at = datetime.datetime.utcnow()
-                        else:
-                            new_sess = UserSession(
-                                username=detected_username,
-                                session_cookie=sessionid,
-                                is_active=True,
-                                last_validated_at=datetime.datetime.utcnow()
-                            )
-                            db.add(new_sess)
+                        new_sess = UserSession(
+                            username=detected_username,
+                            session_cookie=sessionid,
+                            is_active=True,
+                            last_validated_at=datetime.datetime.utcnow()
+                        )
+                        db.add(new_sess)
                     await db.commit()
 
                 interactive_login_state["status"] = "success"
