@@ -1,61 +1,79 @@
 # InstaSave - System Requirements & Dependencies Log
 
-This document tracks all system, backend, and frontend dependencies required to run **InstaSave** on **Fedora Linux 44 Workstation**.
+This document tracks all system, backend, and frontend dependencies required to run **InstaSave** across **Fedora Workstation / Server**, **Debian / Ubuntu / Proxmox LXC containers**, and other Linux distributions.
 
 ---
 
-## 1. System Dependencies (Fedora 44 / `dnf`)
+## 1. Supported Operating Systems & Environments
 
-| Dependency | Minimum Version | Package Name | Purpose |
-| :--- | :--- | :--- | :--- |
-| **Python** | 3.12+ | `python3`, `python3-pip`, `python3-devel` | Core Async API & Scraper Engine |
-| **Node.js** | 20+ | `nodejs`, `npm` | Frontend UI build system (Vite + React) |
-| **FFmpeg** | Latest | `ffmpeg` (RPM Fusion) | Video stitching, audio extraction, audio/video encoding |
-| **SQLite** | 3+ | Built-in / `sqlite` | Lightweight local database engine |
-| **Playwright / Chromium** | Latest | Chromium browser | Headless browser automation for complex 2FA / Session handling |
-| **Git & Systemd** | Native | `git`, `systemd` | Version control & background desktop service management |
+- **Fedora Linux**: Workstation / Server 40, 41, 42, 44+
+- **Proxmox VE (LXC Containers)**: Debian 12 (Bookworm), Ubuntu 22.04 / 24.04 LTS
+- **Debian / Ubuntu**: Debian 11+, Ubuntu 20.04+
+- **Arch Linux / Manjaro**: Rolling release
+- **Enterprise Linux (RHEL / AlmaLinux / Rocky Linux)**: 9.x+
 
 ---
 
-## 2. Backend Dependencies (Python Virtual Environment)
+## 2. System Package Matrix by Distribution
 
-| Package | Purpose |
-| :--- | :--- |
-| `fastapi` | Async web framework for backend REST API |
-| `uvicorn[standard]` | ASGI web server |
-| `pydantic` | Configuration & schema data validation |
-| `httpx[http2]` | High-performance async HTTP client |
-| `instaloader` | Instagram media extraction engine |
-| `playwright` | Browser automation engine for fallback auth/scraping |
-| `sqlalchemy` + `aiosqlite` | Async ORM database interface |
-| `apscheduler` | Background job scheduler (profile syncs) |
-| `pillow` | Image thumbnail processing & metadata |
+| Component | Fedora / RHEL / Alma (`dnf`) | Debian / Ubuntu / Proxmox LXC (`apt`) | Arch Linux (`pacman`) | Purpose |
+| :--- | :--- | :--- | :--- | :--- |
+| **Python 3** | `python3`, `python3-pip`, `python3-devel` | `python3`, `python3-pip`, `python3-venv`, `python3-dev` | `python`, `python-pip` | Async REST API & Scraper runtime |
+| **Node.js & npm** | `nodejs`, `npm` (Node.js 20+ LTS) | `nodejs`, `npm` (NodeSource / apt) | `nodejs`, `npm` | Frontend UI build system (Vite + React) |
+| **FFmpeg** | `ffmpeg` (RPM Fusion) | `ffmpeg` | `ffmpeg` | Video encoding, frame extraction, media repair |
+| **SQLite 3** | `sqlite` | `sqlite3` | `sqlite` | Local database storage (WAL mode) |
+| **Git** | `git` | `git` | `git` | Version control & update tracking |
+| **Browser Runtime** | `playwright install chromium` | `playwright install --with-deps chromium` | `playwright install chromium` | Headless browser automation for complex sessions |
 
 ---
 
-## 3. Frontend Dependencies (Node.js / npm)
+## 3. Headless & Proxmox LXC Container Considerations
 
-| Package | Purpose |
-| :--- | :--- |
-| `vite` | Ultra-fast frontend build tool |
-| `react` + `react-dom` | Reactive component UI library |
-| `lucide-react` | Icons for dark-mode UI |
-| `@tanstack/react-query` | Server state management & caching |
+When running inside a headless Proxmox LXC container or server:
+1. **Network Binding (`--host 0.0.0.0`)**:
+   - The Uvicorn backend must bind to `0.0.0.0` so the web interface can be accessed across your local network (`http://<LXC_IP>:8484`).
+2. **Playwright in Containers (`--no-sandbox`)**:
+   - Playwright Chromium is executed with `--no-sandbox`, `--disable-setuid-sandbox`, and `--disable-dev-shm-usage` to run reliably inside unprivileged or privileged LXC containers.
+3. **Headless Installation (No GUI)**:
+   - The installer automatically detects if a desktop environment is missing and skips `.desktop` desktop shortcut creation without error.
+4. **Systemd Services (Root vs User)**:
+   - In Proxmox LXC containers running as `root`, the service is installed as a system-level unit (`/etc/systemd/system/instasave.service`).
+   - On desktop workstations running as regular users, the service is installed as a user unit (`~/.config/systemd/user/instasave.service`).
 
 ---
 
-## 4. Desktop Shortcut & System Integration
+## 4. Backend Dependencies (`backend/requirements.txt`)
 
-| Asset / File | Target Path | Purpose |
+| Package | Minimum Version | Purpose |
 | :--- | :--- | :--- |
-| **App Icon** | `assets/instasave.svg` | Custom high-resolution vector app icon |
-| **Desktop Shortcut** | `~/Desktop/InstaSave.desktop` | Direct launch icon on Fedora desktop |
-| **App Launcher Entry** | `~/.local/share/applications/instasave.desktop` | GNOME / Fedora Application menu integration |
+| `fastapi` | `>=0.110.0` | Async web framework for REST API |
+| `uvicorn[standard]` | `>=0.28.0` | High-performance ASGI web server |
+| `pydantic` | `>=2.6.0` | Data parsing and validation schemas |
+| `pydantic-settings` | `>=2.2.0` | Environment and settings management |
+| `httpx[http2]` | `>=0.27.0` | Async HTTP/2 client for high-speed scraping |
+| `instaloader` | `>=4.10.0` | Secondary Instagram media probe engine |
+| `playwright` | `>=1.42.0` | Headless Chromium browser automation |
+| `sqlalchemy` | `>=2.0.0` | Async ORM database interface |
+| `aiosqlite` | `>=0.20.0` | Async SQLite driver with WAL support |
+| `pillow` | `>=10.2.0` | Image thumbnail processing & metadata extraction |
+| `python-multipart` | `>=0.0.9` | Multipart form data support for file uploads |
 
 ---
 
-## 5. Installation & Update Strategy
+## 5. Frontend Dependencies (`frontend/package.json`)
 
-- **Local Git Repository (`git init`):** Initialized directly on Fedora workstation (`/run/media/psychlone/Projects/InstaSave`).
-- **Installer Script (`install.sh`):** Handles DNF dependency checks, virtualenv creation, database migration, interactive configuration prompts, systemd user service registration (`systemctl --user enable instasave`), desktop shortcut installation (`InstaSave.desktop`), and update execution (`./install.sh --update`).
-- **Remote Migration Target:** GitHub repository integration when ready for public/private distribution.
+| Package | Version | Purpose |
+| :--- | :--- | :--- |
+| `react` & `react-dom` | `^18.2.0` | Reactive UI framework |
+| `vite` | `^5.4.0` | High-speed frontend development and bundler |
+| `lucide-react` | `^0.359.0` | Clean, modern vector icon set |
+| `@vitejs/plugin-react` | `^4.2.1` | Fast React JSX transformation plugin |
+
+---
+
+## 6. Version Tracking & Upgrades
+
+InstaSave includes a built-in **Version Tracker**:
+- Query current version and commit status via `GET /api/v1/system/version`.
+- Trigger live upstream checks via `POST /api/v1/system/check-update`.
+- Upgrade in place using `./install.sh --update`.

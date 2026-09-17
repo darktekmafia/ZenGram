@@ -11,6 +11,7 @@ from backend.app.api.profiles import router as profiles_router
 from backend.app.api.feed import router as feed_router
 from backend.app.api.downloads import router as downloads_router
 from backend.app.api.settings import router as settings_router
+from backend.app.api.system import router as system_router
 
 from backend.app.services.scraper import rate_tracker
 
@@ -64,6 +65,7 @@ app.include_router(profiles_router, prefix=settings.API_PREFIX)
 app.include_router(feed_router, prefix=settings.API_PREFIX)
 app.include_router(downloads_router, prefix=settings.API_PREFIX)
 app.include_router(settings_router, prefix=settings.API_PREFIX)
+app.include_router(system_router, prefix=settings.API_PREFIX)
 
 @app.get("/health")
 async def health_check():

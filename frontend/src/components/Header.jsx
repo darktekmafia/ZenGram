@@ -10,14 +10,16 @@ export default function Header({
   rateLimitStatus,
   onRunSync,
   onOpenTrackModal,
-  syncing
+  syncing,
+  systemVersion,
+  onOpenUpdateModal
 }) {
   const getHeaderInfo = () => {
     switch (activeTab) {
       case 'downloads':
         return {
           title: 'Downloaded Content',
-          subtitle: 'Explore, view, and manage media saved locally on your Fedora 44 filesystem'
+          subtitle: `Explore, view, and manage media saved locally on your ${systemVersion?.distro_name?.split(' ')[0] || 'Linux'} filesystem`
         }
       case 'followed':
         return {
@@ -38,7 +40,7 @@ export default function Header({
       case 'settings':
         return {
           title: 'Application Settings',
-          subtitle: 'Configure credentials, storage location, rate limits, and system maintenance'
+          subtitle: 'Configure credentials, storage location, rate limits, updates, and maintenance'
         }
       default:
         return {
@@ -57,7 +59,31 @@ export default function Header({
       <div className="status-banner">
         <div className="status-left">
           <CheckCircle2 size={16} />
-          <span>System active on Fedora 44 • Local Server Running on :8484</span>
+          <span>
+            {systemVersion?.distro_name ? `System active on ${systemVersion.distro_name}` : 'System active on Linux'} • Local Server Running on :8484
+          </span>
+          {systemVersion?.update_available && (
+            <span
+              onClick={onOpenUpdateModal}
+              style={{
+                marginLeft: '10px',
+                background: 'rgba(167, 139, 250, 0.2)',
+                color: '#c4b5fd',
+                border: '1px solid rgba(167, 139, 250, 0.4)',
+                padding: '2px 8px',
+                borderRadius: '12px',
+                fontSize: '0.72rem',
+                fontWeight: '600',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+              title="Click to view update details"
+            >
+              Update Available (v{systemVersion.latest_version})
+            </span>
+          )}
         </div>
         <div className="status-right">
           {rateLimitStatus && (

@@ -5,8 +5,9 @@ import MediaCard from './components/MediaCard'
 import WatchedProfilesModal from './components/WatchedProfilesModal'
 import ConsoleModal from './components/ConsoleModal'
 import BatchConfigModal from './components/BatchConfigModal'
+import UpdateModal from './components/UpdateModal'
 import ProfileAvatar from './components/ProfileAvatar'
-import { Download, RefreshCw, Layers, CheckCircle2, Shield, Eye, EyeOff, Users, UserCheck, Key, Settings as SettingsIcon, HardDrive, RotateCcw, Trash2, AlertCircle, ExternalLink, FolderDown, Clock, Loader2, Activity, Terminal } from 'lucide-react'
+import { Download, RefreshCw, Layers, CheckCircle2, Shield, Eye, EyeOff, Users, UserCheck, Key, Settings as SettingsIcon, HardDrive, RotateCcw, Trash2, AlertCircle, ExternalLink, FolderDown, Clock, Loader2, Activity, Terminal, Sparkles, GitBranch, TerminalSquare } from 'lucide-react'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
@@ -34,6 +35,9 @@ export default function App() {
   const [batchTargetUser, setBatchTargetUser] = useState(null)
 
   const [downloadedItems, setDownloadedItems] = useState([])
+  const [systemVersion, setSystemVersion] = useState(null)
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false)
 
   // Fetch Feed Media
   const fetchFeed = async () => {
@@ -138,6 +142,38 @@ export default function App() {
     }
   }
 
+  // Fetch System Version & Git Details
+  const fetchSystemVersion = async () => {
+    try {
+      const res = await fetch('/api/v1/system/version')
+      if (res.ok) {
+        const data = await res.json()
+        setSystemVersion(data)
+      }
+    } catch (err) {
+      console.error('Error fetching system version:', err)
+    }
+  }
+
+  // Live Check for Upstream Updates
+  const handleCheckUpdate = async (simulate = null) => {
+    setCheckingUpdate(true)
+    try {
+      let url = '/api/v1/system/check-update'
+      if (simulate !== null) {
+        url += `?simulate_update=${simulate}`
+      }
+      const res = await fetch(url, { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        setSystemVersion(data)
+      }
+    } catch (err) {
+      console.error('Error checking updates:', err)
+    }
+    setCheckingUpdate(false)
+  }
+
   useEffect(() => {
     fetchFeed()
     fetchDownloadedContent()
@@ -145,6 +181,7 @@ export default function App() {
     fetchUserSession()
     fetchRateLimit()
     fetchAppSettings()
+    fetchSystemVersion()
     const interval = setInterval(fetchRateLimit, 30000)
     return () => clearInterval(interval)
   }, [contentType, searchQuery, selectedUserFilter, activeTab])
@@ -154,6 +191,7 @@ export default function App() {
     await fetchFeed()
     await fetchDownloadedContent()
     await fetchRateLimit()
+    await fetchSystemVersion()
     setSyncing(false)
   }
 
@@ -456,6 +494,8 @@ export default function App() {
         onCloseDockedConsole={() => {
           setIsConsoleDocked(false)
         }}
+        systemVersion={systemVersion}
+        onOpenUpdateModal={() => setIsUpdateModalOpen(true)}
       />
 
       <main className="main-content">
@@ -469,6 +509,8 @@ export default function App() {
           onRunSync={handleRunSync}
           onOpenTrackModal={() => setIsTrackModalOpen(true)}
           syncing={syncing}
+          systemVersion={systemVersion}
+          onOpenUpdateModal={() => setIsUpdateModalOpen(true)}
         />
 
         <div className="content-body">
@@ -1341,44 +1383,56 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Column 2 - Card 4: System Status & Environment */}
+                {/* Column 2 - Card 4: System Status & Version Tracker */}
                 <div className="settings-card">
                   <div>
                     <div className="settings-card-header">
                       <div className="settings-card-title">
                         <Activity size={19} className="text-cyan-400" />
-                        <span>System Environment & Service Status</span>
+                        <span>Version & System Environment</span>
                       </div>
-                      <span className="settings-badge success">
-                        ● Online & Ready
+                      <span className={`settings-badge ${systemVersion?.update_available ? 'warning' : 'success'}`} style={systemVersion?.update_available ? { background: 'rgba(167,139,250,0.2)', color: '#c4b5fd', border: '1px solid rgba(167,139,250,0.4)' } : {}}>
+                        {systemVersion?.update_available ? <><Sparkles size={12} /> Update Available (v{systemVersion.latest_version})</> : '● Up to date'}
                       </span>
                     </div>
 
                     <table className="info-table">
                       <tbody>
                         <tr>
-                          <td className="label">Web Service</td>
-                          <td className="value">InstaSave Local Web Service</td>
+                          <td className="label">Application Version</td>
+                          <td className="value">
+                            <strong>v{systemVersion?.version || '1.0.0'}</strong>
+                            {systemVersion?.update_available && (
+                              <span style={{ marginLeft: '8px', color: '#a78bfa', fontSize: '0.8rem', fontWeight: '600' }}>
+                                (→ v{systemVersion.latest_version} Available)
+                              </span>
+                            )}
+                          </td>
                         </tr>
                         <tr>
-                          <td className="label">Systemd Unit</td>
-                          <td className="value"><code style={{ background: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: '4px' }}>instasave.service</code></td>
-                        </tr>
-                        <tr>
-                          <td className="label">Local Port & Binding</td>
-                          <td className="value">http://127.0.0.1:8484</td>
+                          <td className="label">Git Commit & Branch</td>
+                          <td className="value" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <code style={{ background: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: '4px', fontFamily: 'monospace' }}>
+                              #{systemVersion?.commit_hash || 'HEAD'}
+                            </code>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>({systemVersion?.branch || 'main'})</span>
+                          </td>
                         </tr>
                         <tr>
                           <td className="label">Operating System</td>
-                          <td className="value">Fedora 44 Linux (x86_64)</td>
+                          <td className="value">{systemVersion?.distro_name || 'Fedora Linux 44 (Workstation Edition)'}</td>
                         </tr>
                         <tr>
                           <td className="label">Backend Runtime</td>
-                          <td className="value">Python 3.14 (FastAPI + Uvicorn)</td>
+                          <td className="value">Python {systemVersion?.python_version || '3.14'} (FastAPI + Uvicorn)</td>
                         </tr>
                         <tr>
                           <td className="label">Database Storage</td>
                           <td className="value">SQLite 3 (WAL Mode Active)</td>
+                        </tr>
+                        <tr>
+                          <td className="label">Local Port & Service</td>
+                          <td className="value"><code>instasave.service</code> • http://127.0.0.1:8484</td>
                         </tr>
                         <tr>
                           <td className="label">Rate Limit Quota</td>
@@ -1390,6 +1444,66 @@ export default function App() {
                         </tr>
                       </tbody>
                     </table>
+
+                    {/* Version Actions Toolbar */}
+                    <div style={{ marginTop: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        style={{ fontSize: '0.82rem', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                        onClick={() => handleCheckUpdate()}
+                        disabled={checkingUpdate}
+                      >
+                        <RefreshCw size={14} className={checkingUpdate ? 'animate-spin' : ''} />
+                        <span>{checkingUpdate ? 'Checking Upstream...' : 'Check for Updates'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ fontSize: '0.82rem', padding: '6px 12px' }}
+                        onClick={() => setIsUpdateModalOpen(true)}
+                      >
+                        <span>View Release Details</span>
+                      </button>
+
+                      {/* Test update simulation toggle button for user testing */}
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{
+                          fontSize: '0.78rem',
+                          padding: '6px 10px',
+                          color: systemVersion?.update_available ? '#f87171' : '#a78bfa',
+                          borderColor: systemVersion?.update_available ? 'rgba(239,68,68,0.3)' : 'rgba(167,139,250,0.3)'
+                        }}
+                        onClick={() => handleCheckUpdate(systemVersion?.update_available ? false : true)}
+                        title={systemVersion?.update_available ? 'Reset test update state' : 'Simulate a new update (v1.1.0) to test notification banner'}
+                      >
+                        <Sparkles size={13} />
+                        <span>{systemVersion?.update_available ? 'Reset Update Test' : 'Test Update Notification'}</span>
+                      </button>
+                    </div>
+
+                    {systemVersion?.update_available && (
+                      <div style={{
+                        marginTop: '12px',
+                        padding: '10px 14px',
+                        background: 'rgba(167, 139, 250, 0.1)',
+                        border: '1px solid rgba(167, 139, 250, 0.3)',
+                        borderRadius: '8px',
+                        fontSize: '0.82rem',
+                        color: '#c4b5fd',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <Sparkles size={16} />
+                          <span><strong>{systemVersion.update_status_text}</strong> • Run <code style={{ color: '#34d399', background: '#0a0d14', padding: '2px 6px', borderRadius: '4px' }}>./install.sh --update</code> to apply.</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1433,6 +1547,14 @@ export default function App() {
           setIsConsoleModalOpen(false)
           setIsConsoleDocked(true)
         }}
+      />
+
+      <UpdateModal
+        isOpen={isUpdateModalOpen}
+        onClose={() => setIsUpdateModalOpen(false)}
+        systemVersion={systemVersion}
+        onCheckUpdate={() => handleCheckUpdate()}
+        checkingUpdate={checkingUpdate}
       />
     </div>
   )

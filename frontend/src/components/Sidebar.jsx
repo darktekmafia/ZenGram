@@ -1,5 +1,5 @@
 import React from 'react'
-import { LayoutDashboard, Users, Eye, Download, ListOrdered, Settings, ShieldCheck, Terminal, X } from 'lucide-react'
+import { LayoutDashboard, Users, Eye, Download, ListOrdered, Settings, ShieldCheck, Terminal, X, Sparkles, GitBranch } from 'lucide-react'
 
 export default function Sidebar({
   activeTab,
@@ -8,7 +8,9 @@ export default function Sidebar({
   userSession,
   dockedJob,
   onOpenDockedConsole,
-  onCloseDockedConsole
+  onCloseDockedConsole,
+  systemVersion,
+  onOpenUpdateModal
 }) {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -30,7 +32,37 @@ export default function Sidebar({
         </div>
         <div>
           <div className="brand-title">InstaSave</div>
-          <span className="brand-version">v1.0.0</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+            <span
+              className="brand-version"
+              style={{ cursor: 'pointer' }}
+              onClick={onOpenUpdateModal}
+              title="Click to view version and system information"
+            >
+              v{systemVersion?.version || '1.0.0'}
+            </span>
+            {systemVersion?.update_available && (
+              <span
+                onClick={onOpenUpdateModal}
+                style={{
+                  fontSize: '0.65rem',
+                  fontWeight: '700',
+                  padding: '2px 6px',
+                  borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '3px'
+                }}
+                className="animate-pulse"
+                title={`New update v${systemVersion.latest_version || ''} available! Click to view.`}
+              >
+                <Sparkles size={10} /> Update
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -138,9 +170,24 @@ export default function Sidebar({
         <div className="user-avatar">{initial}</div>
         <div className="user-info">
           <span className="user-name">{displayName}</span>
-          <span className="user-role" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <ShieldCheck size={12} /> Fedora Active
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+            <span className="user-role" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <ShieldCheck size={12} /> {systemVersion?.distro_name?.split(' ')[0] || 'Linux'} Active
+            </span>
+            <span style={{ color: 'var(--border-color)', fontSize: '0.7rem' }}>•</span>
+            <span
+              style={{
+                fontSize: '0.68rem',
+                color: systemVersion?.update_available ? '#a78bfa' : 'var(--text-muted)',
+                cursor: 'pointer',
+                fontFamily: 'monospace'
+              }}
+              onClick={onOpenUpdateModal}
+              title={`Git commit ${systemVersion?.commit_hash || 'HEAD'}. Click for details.`}
+            >
+              {systemVersion?.commit_hash ? `#${systemVersion.commit_hash}` : 'v1.0.0'}
+            </span>
+          </div>
         </div>
       </div>
     </aside>
