@@ -59,13 +59,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi import Depends
+from backend.app.auth_utils import get_current_admin
+
 # Mount API Routers
 app.include_router(auth_router, prefix=settings.API_PREFIX)
-app.include_router(profiles_router, prefix=settings.API_PREFIX)
-app.include_router(feed_router, prefix=settings.API_PREFIX)
-app.include_router(downloads_router, prefix=settings.API_PREFIX)
-app.include_router(settings_router, prefix=settings.API_PREFIX)
-app.include_router(system_router, prefix=settings.API_PREFIX)
+app.include_router(profiles_router, prefix=settings.API_PREFIX, dependencies=[Depends(get_current_admin)])
+app.include_router(feed_router, prefix=settings.API_PREFIX, dependencies=[Depends(get_current_admin)])
+app.include_router(downloads_router, prefix=settings.API_PREFIX, dependencies=[Depends(get_current_admin)])
+app.include_router(settings_router, prefix=settings.API_PREFIX, dependencies=[Depends(get_current_admin)])
+app.include_router(system_router, prefix=settings.API_PREFIX, dependencies=[Depends(get_current_admin)])
 
 @app.get("/health")
 async def health_check():

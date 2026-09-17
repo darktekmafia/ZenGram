@@ -4,6 +4,16 @@ from sqlalchemy import String, Integer, Float, Boolean, DateTime, Text, ForeignK
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from backend.app.database import Base
 
+class AdminUser(Base):
+    __tablename__ = "admin_users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(50), unique=True, default="admin", nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    auth_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    last_login_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, nullable=True)
+
 class UserSession(Base):
     __tablename__ = "user_sessions"
 

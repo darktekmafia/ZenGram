@@ -1,6 +1,6 @@
 import React from 'react'
 import ProfileAvatar from './ProfileAvatar'
-import { LayoutDashboard, Users, Eye, Download, ListOrdered, Settings, ShieldCheck, Terminal, X, Sparkles, GitBranch } from 'lucide-react'
+import { LayoutDashboard, Users, Eye, Download, ListOrdered, Settings, ShieldCheck, Terminal, X, Sparkles, GitBranch, LogOut } from 'lucide-react'
 
 export default function Sidebar({
   activeTab,
@@ -12,7 +12,8 @@ export default function Sidebar({
   onCloseDockedConsole,
   systemVersion,
   onOpenUpdateModal,
-  onNavigateToSettings
+  onNavigateToSettings,
+  onLogout
 }) {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -175,12 +176,35 @@ export default function Sidebar({
           className="user-avatar"
           style={{ width: '38px', height: '38px', borderRadius: '10px', objectFit: 'cover', flexShrink: 0 }}
         />
-        <div className="user-info">
+        <div className="user-info" style={{ flex: 1, minWidth: 0 }}>
           <span className="user-name">{displayName}</span>
           <span className="user-role" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
             <ShieldCheck size={12} /> {systemVersion?.distro_name?.split(' ')[0] || 'Linux'} Active
           </span>
         </div>
+        {onLogout && (
+          <button
+            type="button"
+            onClick={onLogout}
+            title="Log out of InstaSave"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text-muted)',
+              cursor: 'pointer',
+              padding: '6px',
+              borderRadius: '6px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'color 0.15s ease'
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = '#f87171')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+          >
+            <LogOut size={15} />
+          </button>
+        )}
       </div>
 
       {/* Dedicated Bottom Version & Update Tracker Footer */}

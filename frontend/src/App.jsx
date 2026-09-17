@@ -7,8 +7,9 @@ import ConsoleModal from './components/ConsoleModal'
 import BatchConfigModal from './components/BatchConfigModal'
 import UpdateModal from './components/UpdateModal'
 import DevToolsGuideModal from './components/DevToolsGuideModal'
+import LoginScreen from './components/LoginScreen'
 import ProfileAvatar from './components/ProfileAvatar'
-import { Download, RefreshCw, Layers, CheckCircle2, Shield, Eye, EyeOff, Users, UserCheck, Key, Settings as SettingsIcon, HardDrive, RotateCcw, Trash2, AlertCircle, ExternalLink, FolderDown, Clock, Loader2, Activity, Terminal, Sparkles, GitBranch, TerminalSquare, ChevronDown, ChevronUp, ChevronsUpDown, Monitor, BookOpen, AlertTriangle } from 'lucide-react'
+import { Download, RefreshCw, Layers, CheckCircle2, Shield, Eye, EyeOff, Users, UserCheck, Key, Settings as SettingsIcon, HardDrive, RotateCcw, Trash2, AlertCircle, ExternalLink, FolderDown, Clock, Loader2, Activity, Terminal, Sparkles, GitBranch, TerminalSquare, ChevronDown, ChevronUp, ChevronsUpDown, Monitor, BookOpen, AlertTriangle, Lock } from 'lucide-react'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
@@ -43,11 +44,22 @@ export default function App() {
   const [interactiveLoginState, setInteractiveLoginState] = useState(null)
   const [isStartingBrowserLogin, setIsStartingBrowserLogin] = useState(false)
   const [displayInfo, setDisplayInfo] = useState(null)
+  
+  // Master Authentication & Security State
+  const [authStatus, setAuthStatus] = useState(null)
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true)
+  const [currentPasswordInput, setCurrentPasswordInput] = useState('')
+  const [newPasswordInput, setNewPasswordInput] = useState('')
+  const [confirmNewPasswordInput, setConfirmNewPasswordInput] = useState('')
+  const [passwordChangeStatus, setPasswordChangeStatus] = useState(null)
+  const [authToggleStatus, setAuthToggleStatus] = useState(null)
+
   const [expandedSections, setExpandedSections] = useState({
     session: false,
     storage: false,
     maintenance: false,
-    version: false
+    version: false,
+    security: false
   })
   const [highlightedSection, setHighlightedSection] = useState(null)
 
@@ -63,7 +75,8 @@ export default function App() {
       session: expand,
       storage: expand,
       maintenance: expand,
-      version: expand
+      version: expand,
+      security: expand
     })
   }
 
@@ -220,18 +233,104 @@ export default function App() {
     setCheckingUpdate(false)
   }
 
+  // Fetch Master Auth Status (HttpOnly Cookie & Setup Check)
+  const fetchAuthStatus = async () => {
+    try {
+      const res = await fetch('/api/v1/auth/status')
+      if (res.ok) {
+        const data = await res.json()
+        setAuthStatus(data)
+      }
+    } catch (err) {
+      console.error('Error checking master auth status:', err)
+    } finally {
+      setIsCheckingAuth(false)
+    }
+  }
+
   useEffect(() => {
-    fetchFeed()
-    fetchDownloadedContent()
-    fetchProfiles()
-    fetchUserSession()
-    fetchRateLimit()
-    fetchAppSettings()
-    fetchSystemVersion()
-    fetchDisplayInfo()
-    const interval = setInterval(fetchRateLimit, 30000)
-    return () => clearInterval(interval)
-  }, [contentType, searchQuery, selectedUserFilter, activeTab])
+    fetchAuthStatus()
+  }, [])
+
+  useEffect(() => {
+    if (!authStatus?.is_setup_required && (authStatus?.is_authenticated || !authStatus?.auth_enabled)) {
+      fetchFeed()
+      fetchDownloadedContent()
+      fetchProfiles()
+      fetchUserSession()
+      fetchRateLimit()
+      fetchAppSettings()
+      fetchSystemVersion()
+      fetchDisplayInfo()
+      const interval = setInterval(fetchRateLimit, 30000)
+      return () => clearInterval(interval)
+    }
+  }, [authStatus, contentType, searchQuery, selectedUserFilter, activeTab])
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/v1/auth/logout', { method: 'POST' })
+      setAuthStatus((prev) => ({ ...prev, is_authenticated: false }))
+    } catch (err) {
+      console.error('Error logging out:', err)
+    }
+  }
+
+  const handleChangeMasterPassword = async (e) => {
+    e.preventDefault()
+    setPasswordChangeStatus('saving')
+    if (newPasswordInput !== confirmNewPasswordInput) {
+      setPasswordChangeStatus('mismatch')
+      return
+    }
+    if (newPasswordInput.length < 6) {
+      setPasswordChangeStatus('short')
+      return
+    }
+    try {
+      const res = await fetch('/api/v1/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          current_password: currentPasswordInput,
+          new_password: newPasswordInput
+        })
+      })
+      if (res.ok) {
+        setPasswordChangeStatus('success')
+        setCurrentPasswordInput('')
+        setNewPasswordInput('')
+        setConfirmNewPasswordInput('')
+        setTimeout(() => setPasswordChangeStatus(null), 4000)
+      } else {
+        const err = await res.json()
+        setPasswordChangeStatus(err.detail || 'error')
+      }
+    } catch (err) {
+      setPasswordChangeStatus('Network error changing password.')
+    }
+  }
+
+  const handleToggleAuthRequirement = async (enabled) => {
+    setAuthToggleStatus('saving')
+    try {
+      const res = await fetch('/api/v1/auth/security-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auth_enabled: enabled })
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setAuthStatus((prev) => ({ ...prev, auth_enabled: data.auth_enabled }))
+        setAuthToggleStatus('success')
+        setTimeout(() => setAuthToggleStatus(null), 3000)
+      } else {
+        setAuthToggleStatus('error')
+      }
+    } catch (err) {
+      setAuthToggleStatus('error')
+    }
+  }
 
   // Fetch Display Info for Browser Mode
   const fetchDisplayInfo = async () => {
@@ -593,6 +692,23 @@ export default function App() {
   const trackedUnfollowedList = watchedProfiles.filter((p) => p.is_unfollowed_track)
   const displayFollowedList = followedProfiles.length > 0 ? followedProfiles : watchedProfiles.filter((p) => !p.is_unfollowed_track)
 
+  if (isCheckingAuth) {
+    return (
+      <div style={{ minHeight: '100vh', width: '100vw', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0b0f17' }}>
+        <Loader2 size={38} className="animate-spin" style={{ color: '#60a5fa' }} />
+      </div>
+    )
+  }
+
+  if (authStatus?.is_setup_required || (!authStatus?.is_authenticated && authStatus?.auth_enabled)) {
+    return (
+      <LoginScreen
+        isSetupRequired={authStatus?.is_setup_required}
+        onSuccess={fetchAuthStatus}
+      />
+    )
+  }
+
   return (
     <div className="app-container">
       <Sidebar
@@ -613,6 +729,7 @@ export default function App() {
         systemVersion={systemVersion}
         onOpenUpdateModal={() => setIsUpdateModalOpen(true)}
         onNavigateToSettings={navigateToSettingsSection}
+        onLogout={handleLogout}
       />
 
       <main className="main-content">
@@ -1867,6 +1984,158 @@ export default function App() {
                         </div>
                       </div>
                     )}
+                  </div>
+                )}
+              </div>
+
+              {/* Section 5: Master Security & Access Control */}
+              <div
+                id="settings-section-security"
+                className={`settings-accordion-item ${expandedSections.security ? 'is-expanded' : ''} ${highlightedSection === 'security' ? 'highlight-section' : ''}`}
+              >
+                <div
+                  className="settings-accordion-header"
+                  onClick={() => toggleSection('security')}
+                >
+                  <div className="settings-accordion-header-left">
+                    <div className="settings-accordion-icon" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24' }}>
+                      <Lock size={19} />
+                    </div>
+                    <div className="settings-accordion-title-group">
+                      <h3>Master Security & Web Access Control</h3>
+                      <p>Update administrator password, manage HttpOnly cookies, and configure authentication requirements</p>
+                    </div>
+                  </div>
+
+                  <div className="settings-accordion-header-right">
+                    <span className={`settings-badge ${authStatus?.auth_enabled ? 'success' : 'neutral'}`}>
+                      {authStatus?.auth_enabled ? '🔒 Password Protected' : '🔓 Auth Disabled'}
+                    </span>
+                    <div className="settings-accordion-chevron">
+                      <ChevronDown size={18} />
+                    </div>
+                  </div>
+                </div>
+
+                {expandedSections.security && (
+                  <div className="settings-accordion-body">
+                    {/* Security Overview & Info Banner */}
+                    <div
+                      style={{
+                        padding: '12px 16px',
+                        background: 'rgba(16, 185, 129, 0.08)',
+                        border: '1px solid rgba(16, 185, 129, 0.25)',
+                        borderRadius: 'var(--radius-sm)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        marginBottom: '20px',
+                        flexWrap: 'wrap'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <ShieldCheck size={20} style={{ color: '#34d399', flexShrink: 0 }} />
+                        <div style={{ fontSize: '0.82rem', color: 'var(--text-main)' }}>
+                          <strong>HttpOnly Session Cookie Active</strong>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '0.76rem', marginTop: '1px' }}>
+                            Your session token is cryptographically signed and stored in a secure <code>HttpOnly</code> cookie, protecting InstaSave from XSS attacks and unauthorized direct LAN/reverse proxy bypass.
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{
+                            fontSize: '0.8rem',
+                            padding: '6px 12px',
+                            color: authStatus?.auth_enabled ? '#f87171' : '#34d399',
+                            borderColor: authStatus?.auth_enabled ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'
+                          }}
+                          onClick={() => handleToggleAuthRequirement(!authStatus?.auth_enabled)}
+                          disabled={authToggleStatus === 'saving'}
+                        >
+                          {authStatus?.auth_enabled ? 'Disable Password Requirement' : 'Enable Password Requirement'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Change Password Form */}
+                    <form onSubmit={handleChangeMasterPassword} style={{ maxWidth: '520px' }}>
+                      <h4 style={{ margin: '0 0 12px 0', fontSize: '0.95rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Key size={15} /> Change Master Admin Password
+                      </h4>
+
+                      <div className="settings-form-group">
+                        <label className="settings-label">Current Master Password</label>
+                        <input
+                          type="password"
+                          className="input-field"
+                          value={currentPasswordInput}
+                          onChange={(e) => setCurrentPasswordInput(e.target.value)}
+                          placeholder="Enter your current password"
+                          required
+                          style={{ margin: 0 }}
+                        />
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '12px' }}>
+                        <div className="settings-form-group">
+                          <label className="settings-label">New Password</label>
+                          <input
+                            type="password"
+                            className="input-field"
+                            value={newPasswordInput}
+                            onChange={(e) => setNewPasswordInput(e.target.value)}
+                            placeholder="Min 6 characters"
+                            required
+                            style={{ margin: 0 }}
+                          />
+                        </div>
+
+                        <div className="settings-form-group">
+                          <label className="settings-label">Confirm New Password</label>
+                          <input
+                            type="password"
+                            className="input-field"
+                            value={confirmNewPasswordInput}
+                            onChange={(e) => setConfirmNewPasswordInput(e.target.value)}
+                            placeholder="Re-enter new password"
+                            required
+                            style={{ margin: 0 }}
+                          />
+                        </div>
+                      </div>
+
+                      {passwordChangeStatus === 'mismatch' && (
+                        <p style={{ color: '#f87171', fontSize: '0.8rem', marginTop: '8px' }}>
+                          Passwords do not match. Please re-enter.
+                        </p>
+                      )}
+                      {passwordChangeStatus === 'short' && (
+                        <p style={{ color: '#f87171', fontSize: '0.8rem', marginTop: '8px' }}>
+                          New password must be at least 6 characters long.
+                        </p>
+                      )}
+                      {passwordChangeStatus && !['mismatch', 'short', 'saving', 'success'].includes(passwordChangeStatus) && (
+                        <p style={{ color: '#f87171', fontSize: '0.8rem', marginTop: '8px' }}>
+                          {passwordChangeStatus}
+                        </p>
+                      )}
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '16px' }}>
+                        <button type="submit" className="btn-primary" disabled={passwordChangeStatus === 'saving'}>
+                          {passwordChangeStatus === 'saving' ? 'Updating...' : 'Update Master Password'}
+                        </button>
+                        {passwordChangeStatus === 'success' && (
+                          <span style={{ color: '#10b981', fontSize: '0.84rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <CheckCircle2 size={16} /> Password updated successfully!
+                          </span>
+                        )}
+                      </div>
+                    </form>
                   </div>
                 )}
               </div>

@@ -2,6 +2,28 @@ import datetime
 from typing import Optional, List
 from pydantic import BaseModel, ConfigDict
 
+class AdminSetupRequest(BaseModel):
+    username: str = "admin"
+    password: str
+
+class AdminLoginRequest(BaseModel):
+    username: str = "admin"
+    password: str
+    remember_me: bool = True
+
+class AdminChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+class AdminSecuritySettingsRequest(BaseModel):
+    auth_enabled: bool
+
+class AuthStatusResponse(BaseModel):
+    is_setup_required: bool
+    is_authenticated: bool
+    auth_enabled: bool
+    admin_username: Optional[str] = None
+
 class UserSessionBase(BaseModel):
     username: str
 

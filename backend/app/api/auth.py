@@ -3,48 +3,199 @@ import datetime
 import logging
 import os
 from typing import Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from backend.app.database import get_db, AsyncSessionLocal
-from backend.app.models import UserSession, WatchedProfile
-from backend.app.schemas import UserSessionCreate, UserSessionResponse
+from backend.app.models import UserSession, WatchedProfile, AdminUser
+from backend.app.schemas import (
+    UserSessionCreate, UserSessionResponse,
+    AdminSetupRequest, AdminLoginRequest, AdminChangePasswordRequest,
+    AdminSecuritySettingsRequest, AuthStatusResponse
+)
+from backend.app.auth_utils import (
+    hash_password, verify_password, create_access_token, decode_access_token, get_current_admin
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
-# Global state for interactive browser login
-interactive_login_state: Dict[str, Any] = {
-    "is_running": False,
-    "status": "idle",  # "idle", "opening_browser", "waiting_for_user", "extracting", "success", "error", "cancelled", "headless_detected"
-    "message": "",
-    "error": None,
-    "username": None,
-    "session_cookie": None,
-    "updated_at": None,
-    "task": None,
-}
+# -------------------------------------------------------------
+# Admin User & Master Password Authentication (HttpOnly Cookie)
+# -------------------------------------------------------------
 
-_playwright_instance = None
-_active_browser = None
+@router.get("/status", response_model=AuthStatusResponse)
+async def get_auth_status(request: Request, db: AsyncSession = Depends(get_db)):
+    """Check whether master setup is required and whether the current browser session is authenticated."""
+    result = await db.execute(select(AdminUser))
+    admin = result.scalars().first()
+
+    if not admin:
+        return AuthStatusResponse(
+            is_setup_required=True,
+            is_authenticated=False,
+            auth_enabled=True,
+            admin_username=None
+        )
+
+    if not admin.auth_enabled:
+        return AuthStatusResponse(
+            is_setup_required=False,
+            is_authenticated=True,
+            auth_enabled=False,
+            admin_username=admin.username
+        )
+
+    # Check HttpOnly cookie or Authorization header
+    token = request.cookies.get("instasave_token")
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ", 1)[1]
+
+    is_auth = False
+    if token:
+        payload = decode_access_token(token)
+        if payload and payload.get("sub") == admin.username:
+            is_auth = True
+
+    return AuthStatusResponse(
+        is_setup_required=False,
+        is_authenticated=is_auth,
+        auth_enabled=admin.auth_enabled,
+        admin_username=admin.username if is_auth else None
+    )
 
 
-def has_graphical_display() -> bool:
-    """Check if the current Linux/Host environment has an active display server (X11 or Wayland)."""
-    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+@router.post("/setup")
+async def setup_admin_account(data: AdminSetupRequest, response: Response, db: AsyncSession = Depends(get_db)):
+    """First-run setup wizard: Create master admin password and issue initial HttpOnly session cookie."""
+    result = await db.execute(select(AdminUser))
+    existing_admin = result.scalars().first()
+    if existing_admin:
+        raise HTTPException(status_code=400, detail="Administrator account is already initialized.")
 
+    clean_username = data.username.strip() or "admin"
+    if len(data.password) < 6:
+        raise HTTPException(status_code=400, detail="Master password must be at least 6 characters long.")
 
-@router.get("/display-info")
-async def get_display_info():
-    """Return whether the current server has a graphical display available for headful browser actions."""
-    has_display = has_graphical_display()
-    display_var = os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY") or "None"
+    hashed = hash_password(data.password)
+    new_admin = AdminUser(
+        username=clean_username,
+        hashed_password=hashed,
+        auth_enabled=True,
+        created_at=datetime.datetime.utcnow(),
+        last_login_at=datetime.datetime.utcnow()
+    )
+    db.add(new_admin)
+    await db.commit()
+    await db.refresh(new_admin)
+
+    # Generate token & set HttpOnly cookie
+    token = create_access_token({"sub": new_admin.username})
+    response.set_cookie(
+        key="instasave_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        max_age=30 * 86400,
+        path="/"
+    )
     return {
-        "has_display": has_display,
-        "display_var": display_var,
-        "environment_type": "desktop_workstation" if has_display else "headless_server_or_lxc"
+        "status": "success",
+        "username": new_admin.username,
+        "message": "Master administrator password configured successfully!"
     }
+
+
+@router.post("/login")
+async def login_admin(data: AdminLoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
+    """Authenticate administrator with master credentials and issue secure HttpOnly cookie."""
+    result = await db.execute(select(AdminUser))
+    admin = result.scalars().first()
+    if not admin:
+        raise HTTPException(status_code=400, detail="System setup required. Please configure an administrator password.")
+
+    if not verify_password(data.password, admin.hashed_password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password.")
+
+    admin.last_login_at = datetime.datetime.utcnow()
+    await db.commit()
+
+    max_age = 30 * 86400 if data.remember_me else None
+    token = create_access_token({"sub": admin.username})
+    response.set_cookie(
+        key="instasave_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        max_age=max_age,
+        path="/"
+    )
+    return {
+        "status": "success",
+        "username": admin.username,
+        "message": "Authenticated successfully."
+    }
+
+
+@router.post("/logout")
+async def logout_admin(response: Response):
+    """Clear the HttpOnly authentication cookie."""
+    response.delete_cookie(key="instasave_token", path="/")
+    return {
+        "status": "success",
+        "message": "Logged out successfully."
+    }
+
+
+@router.post("/change-password")
+async def change_admin_password(
+    data: AdminChangePasswordRequest,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Change the master admin password."""
+    if not current_admin:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated.")
+
+    if not verify_password(data.current_password, current_admin.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+
+    if len(data.new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters long.")
+
+    current_admin.hashed_password = hash_password(data.new_password)
+    await db.commit()
+    return {
+        "status": "success",
+        "message": "Master password updated successfully!"
+    }
+
+
+@router.post("/security-settings")
+async def update_security_settings(
+    data: AdminSecuritySettingsRequest,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Toggle master authentication requirement on/off."""
+    if not current_admin:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated.")
+
+    current_admin.auth_enabled = data.auth_enabled
+    await db.commit()
+    return {
+        "status": "success",
+        "auth_enabled": current_admin.auth_enabled,
+        "message": f"Authentication requirement {'enabled' if data.auth_enabled else 'disabled'}."
+    }
+
+
+# -------------------------------------------------------------
+# Instagram Session & Interactive Browser Login
+# -------------------------------------------------------------
 
 
 @router.get("/session", response_model=UserSessionResponse)
@@ -97,6 +248,39 @@ async def create_session(data: UserSessionCreate, db: AsyncSession = Depends(get
     await db.commit()
     await db.refresh(new_session)
     return new_session
+
+
+# Global state for interactive browser login
+interactive_login_state: Dict[str, Any] = {
+    "is_running": False,
+    "status": "idle",  # "idle", "opening_browser", "waiting_for_user", "extracting", "success", "error", "cancelled", "headless_detected"
+    "message": "",
+    "error": None,
+    "username": None,
+    "session_cookie": None,
+    "updated_at": None,
+    "task": None,
+}
+
+_playwright_instance = None
+_active_browser = None
+
+
+def has_graphical_display() -> bool:
+    """Check if the current Linux/Host environment has an active display server (X11 or Wayland)."""
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+@router.get("/display-info")
+async def get_display_info():
+    """Return whether the current server has a graphical display available for headful browser actions."""
+    has_display = has_graphical_display()
+    display_var = os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY") or "None"
+    return {
+        "has_display": has_display,
+        "display_var": display_var,
+        "environment_type": "desktop_workstation" if has_display else "headless_server_or_lxc"
+    }
 
 
 async def _run_interactive_login_task():
