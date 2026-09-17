@@ -1,7 +1,8 @@
-import React, { useState } from 'react'
-import { Download, Lock, Key, ShieldCheck, Eye, EyeOff, Sparkles, CheckCircle2, AlertCircle, ArrowRight, Loader2, User } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { Download, Lock, Key, ShieldCheck, Eye, EyeOff, Sparkles, CheckCircle2, AlertCircle, ArrowRight, Loader2, User, Info } from 'lucide-react'
 
 export default function LoginScreen({ isSetupRequired, onSuccess }) {
+  const [setupMode, setSetupMode] = useState(!!isSetupRequired)
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -11,12 +12,16 @@ export default function LoginScreen({ isSetupRequired, onSuccess }) {
   const [error, setError] = useState(null)
   const [successMsg, setSuccessMsg] = useState(null)
 
+  useEffect(() => {
+    setSetupMode(!!isSetupRequired)
+  }, [isSetupRequired])
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError(null)
     setSuccessMsg(null)
 
-    if (isSetupRequired) {
+    if (setupMode) {
       if (!password || password.length < 6) {
         setError('Master password must be at least 6 characters long.')
         return
@@ -74,7 +79,13 @@ export default function LoginScreen({ isSetupRequired, onSuccess }) {
             onSuccess()
           }, 400)
         } else {
-          setError(data.detail || 'Invalid username or password.')
+          // If server says setup required, automatically switch to setup mode
+          if (data.detail && data.detail.includes('setup required')) {
+            setSetupMode(true)
+            setError('No master password set yet. Please confirm your password below to complete initial setup.')
+          } else {
+            setError(data.detail || 'Invalid username or password.')
+          }
         }
       } catch (err) {
         setError('Network error connecting to InstaSave server.')
@@ -151,7 +162,7 @@ export default function LoginScreen({ isSetupRequired, onSuccess }) {
             InstaSave
           </h1>
           <p style={{ margin: '6px 0 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-            {isSetupRequired
+            {setupMode
               ? 'First-Time Setup: Create your master administrator password'
               : 'Direct & Remote Access Protected'}
           </p>
@@ -223,7 +234,7 @@ export default function LoginScreen({ isSetupRequired, onSuccess }) {
 
           <div>
             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
-              {isSetupRequired ? 'Create Master Password' : 'Password'}
+              {setupMode ? 'Create Master Password' : 'Password'}
             </label>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <div style={{ position: 'absolute', left: '12px', color: 'var(--text-muted)' }}>
@@ -234,7 +245,7 @@ export default function LoginScreen({ isSetupRequired, onSuccess }) {
                 className="input-field"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder={isSetupRequired ? 'Minimum 6 characters' : 'Enter master password'}
+                placeholder={setupMode ? 'Minimum 6 characters' : 'Enter master password'}
                 style={{ paddingLeft: '38px', paddingRight: '40px', margin: 0, width: '100%' }}
                 autoFocus
                 required
@@ -250,7 +261,7 @@ export default function LoginScreen({ isSetupRequired, onSuccess }) {
             </div>
           </div>
 
-          {isSetupRequired && (
+          {setupMode && (
             <div>
               <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
                 Confirm Master Password
@@ -272,7 +283,7 @@ export default function LoginScreen({ isSetupRequired, onSuccess }) {
             </div>
           )}
 
-          {!isSetupRequired && (
+          {!setupMode && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-muted)', cursor: 'pointer' }}>
                 <input
@@ -307,11 +318,11 @@ export default function LoginScreen({ isSetupRequired, onSuccess }) {
             {loading ? (
               <>
                 <Loader2 size={18} className="animate-spin" />
-                <span>{isSetupRequired ? 'Configuring Security...' : 'Authenticating...'}</span>
+                <span>{setupMode ? 'Configuring Security...' : 'Authenticating...'}</span>
               </>
             ) : (
               <>
-                <span>{isSetupRequired ? 'Create Master Password' : 'Unlock InstaSave'}</span>
+                <span>{setupMode ? 'Create Master Password' : 'Unlock InstaSave'}</span>
                 <ArrowRight size={18} />
               </>
             )}
