@@ -5,7 +5,7 @@ import os
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from backend.app.database import get_db, AsyncSessionLocal
 from backend.app.models import UserSession, WatchedProfile, AdminUser
 from backend.app.schemas import (
@@ -57,8 +57,12 @@ async def get_auth_status(request: Request, db: AsyncSession = Depends(get_db)):
     is_auth = False
     if token:
         payload = decode_access_token(token)
-        if payload and payload.get("sub") == admin.username:
-            is_auth = True
+        if payload and payload.get("sub"):
+            token_user = payload.get("sub")
+            # Verify user exists and matches
+            user_match = await db.execute(select(AdminUser).where(func.lower(AdminUser.username) == token_user.lower()))
+            if user_match.scalars().first():
+                is_auth = True
 
     return AuthStatusResponse(
         is_setup_required=False,
@@ -112,10 +116,16 @@ async def setup_admin_account(data: AdminSetupRequest, response: Response, db: A
 @router.post("/login")
 async def login_admin(data: AdminLoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
     """Authenticate administrator with master credentials and issue secure HttpOnly cookie."""
-    result = await db.execute(select(AdminUser))
+    clean_username = data.username.strip()
+    result = await db.execute(select(AdminUser).where(func.lower(AdminUser.username) == clean_username.lower()))
     admin = result.scalars().first()
+
     if not admin:
-        raise HTTPException(status_code=400, detail="System setup required. Please configure an administrator password.")
+        # Check if system has no admin at all
+        any_admin = (await db.execute(select(AdminUser))).scalars().first()
+        if not any_admin:
+            raise HTTPException(status_code=400, detail="System setup required. Please configure an administrator password.")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password.")
 
     if not verify_password(data.password, admin.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password.")
