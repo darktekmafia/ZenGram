@@ -433,12 +433,44 @@ async def process_user_batch_archive_job(
 import re
 import io
 import zipfile
+from datetime import datetime
 from fastapi.responses import FileResponse, Response
+
+def resolve_or_relocate_path(item: MediaItem, base_dir: Optional[Path] = None) -> Optional[str]:
+    """Dynamically resolve the disk file path for a media item, auto-repairing if directory moved."""
+    if item.local_file_path and os.path.exists(item.local_file_path):
+        return item.local_file_path
+
+    # Try replacing /InstaSave/ with /ZenGram/
+    if item.local_file_path:
+        cand1 = item.local_file_path.replace("/InstaSave/", "/ZenGram/").replace("\\InstaSave\\", "\\ZenGram\\")
+        if os.path.exists(cand1):
+            item.local_file_path = cand1
+            return cand1
+
+    target_base = Path(base_dir) if base_dir else settings.DOWNLOAD_DIR
+    if os.path.exists(target_base):
+        code = (item.shortcode or item.post_id or "").replace("ig_", "")
+        if code and item.username:
+            user_patterns = [
+                target_base / "General" / f"@{item.username}",
+                target_base / "Uncategorized" / f"@{item.username}",
+                target_base / f"@{item.username}",
+            ]
+            for u_dir in user_patterns:
+                if u_dir.exists():
+                    for f in os.listdir(u_dir):
+                        if f.startswith(f"{code}.") or f.startswith(f"{code}_"):
+                            resolved = str(u_dir / f)
+                            item.local_file_path = resolved
+                            return resolved
+    return None
 
 def enrich_media_item(item: MediaItem) -> MediaItem:
     """Scan disk for all downloaded slide files belonging to this post and enrich carousel_media."""
-    if item.is_saved and item.local_file_path and os.path.exists(item.local_file_path):
-        parent_dir = os.path.dirname(item.local_file_path)
+    actual_path = resolve_or_relocate_path(item)
+    if item.is_saved and actual_path and os.path.exists(actual_path):
+        parent_dir = os.path.dirname(actual_path)
         code = item.shortcode or item.post_id
         pattern = re.compile(rf'^{re.escape(code)}(?:_(\d+))?\.(jpg|jpeg|png|mp4|webm)$', re.IGNORECASE)
         matching_files = []
@@ -929,47 +961,20 @@ async def clear_completed_jobs(all_jobs: bool = Query(False), db: AsyncSession =
 @router.post("/verify-disk")
 async def verify_downloaded_files_on_disk(db: AsyncSession = Depends(get_db)):
     from pathlib import Path
-    from backend.app.services.downloader import validate_media_file, downloader
-    
-    stmt = select(MediaItem).where(MediaItem.is_saved == True)
-    result = await db.execute(stmt)
-    saved_items = result.scalars().all()
-    
-    verified_count = 0
-    corrupt_count = 0
-    missing_count = 0
-    
-    for item in saved_items:
-        if not item.local_file_path:
-            item.is_saved = False
-            item.local_file_path = None
-            item.saved_at = None
-            missing_count += 1
-            continue
-            
-        f_path = Path(item.local_file_path)
-        if not f_path.exists() or f_path.stat().st_size == 0:
-            item.is_saved = False
-            item.local_file_path = None
-            item.saved_at = None
-            missing_count += 1
-        elif not validate_media_file(f_path):
-            # File is corrupt or unplayable DASH fragment
-            try:
-                f_path.unlink()
-            except Exception:
-                pass
-            item.is_saved = False
-            item.local_file_path = None
-            item.saved_at = None
-            corrupt_count += 1
-        else:
-            verified_count += 1
+    from backend.app.services.downloader import validate_media_file
+    from backend.app.models import AppSettings
 
-    # Also clean up any orphaned corrupt .part or raw moof fragment files in download directory
+    # 1. Resolve current configured download directory
+    sett_res = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+    app_settings = sett_res.scalars().first()
+    target_download_dir = Path(app_settings.download_directory) if app_settings and app_settings.download_directory else settings.DOWNLOAD_DIR
+    os.makedirs(target_download_dir, exist_ok=True)
+
+    # 2. Index all files on disk in download directory by stem and shortcode prefix
+    files_by_stem = {}
     cleaned_disk_fragments = 0
     try:
-        for root, _, files in os.walk(downloader.download_dir):
+        for root, _, files in os.walk(target_download_dir):
             for f in files:
                 full_p = Path(root) / f
                 if f.endswith(".part"):
@@ -978,24 +983,104 @@ async def verify_downloaded_files_on_disk(db: AsyncSession = Depends(get_db)):
                         cleaned_disk_fragments += 1
                     except Exception:
                         pass
-                elif f.endswith(".mp4"):
-                    if not validate_media_file(full_p):
-                        try:
-                            full_p.unlink()
-                            cleaned_disk_fragments += 1
-                        except Exception:
-                            pass
+                    continue
+                elif f.endswith(".mp4") and not validate_media_file(full_p):
+                    try:
+                        full_p.unlink()
+                        cleaned_disk_fragments += 1
+                    except Exception:
+                        pass
+                    continue
+
+                stem = full_p.stem
+                if stem not in files_by_stem:
+                    files_by_stem[stem] = []
+                files_by_stem[stem].append(full_p)
     except Exception as e:
-        logger.warning(f"Error scanning disk for orphaned corrupt files: {e}")
+        logger.warning(f"Error indexing disk files in {target_download_dir}: {e}")
+
+    # 3. Scan all media items in the database
+    stmt = select(MediaItem)
+    result = await db.execute(stmt)
+    all_items = result.scalars().all()
+
+    verified_count = 0
+    corrupt_count = 0
+    missing_count = 0
+
+    for item in all_items:
+        found_file = None
+
+        # Check existing path
+        if item.local_file_path:
+            f_path = Path(item.local_file_path)
+            if f_path.exists() and f_path.stat().st_size > 0:
+                found_file = f_path
+            else:
+                # Try replacing /InstaSave/ with /ZenGram/
+                cand = item.local_file_path.replace("/InstaSave/", "/ZenGram/").replace("\\InstaSave\\", "\\ZenGram\\")
+                cand_p = Path(cand)
+                if cand_p.exists() and cand_p.stat().st_size > 0:
+                    found_file = cand_p
+
+        # If not found at stored path, search disk index by shortcode / post_id
+        if not found_file:
+            candidates = []
+            if item.shortcode:
+                candidates.append(item.shortcode)
+                candidates.append(f"{item.shortcode}_1")
+            if item.post_id:
+                clean_pid = item.post_id.replace("ig_", "")
+                candidates.append(clean_pid)
+                candidates.append(f"{clean_pid}_1")
+
+            for cand_stem in candidates:
+                if cand_stem in files_by_stem and len(files_by_stem[cand_stem]) > 0:
+                    found_file = files_by_stem[cand_stem][0]
+                    break
+
+            if not found_file and item.shortcode:
+                # Check stems starting with shortcode_
+                for stem_key, flist in files_by_stem.items():
+                    if stem_key.startswith(f"{item.shortcode}_") or stem_key == item.shortcode:
+                        found_file = flist[0]
+                        break
+
+        # Validate file
+        if found_file:
+            if not validate_media_file(found_file):
+                try:
+                    found_file.unlink()
+                except Exception:
+                    pass
+                item.is_saved = False
+                item.local_file_path = None
+                item.saved_at = None
+                corrupt_count += 1
+            else:
+                item.is_saved = True
+                item.local_file_path = str(found_file)
+                if not item.saved_at:
+                    try:
+                        item.saved_at = datetime.fromtimestamp(found_file.stat().st_mtime)
+                    except Exception:
+                        pass
+                verified_count += 1
+        else:
+            if item.is_saved:
+                item.is_saved = False
+                item.local_file_path = None
+                item.saved_at = None
+                missing_count += 1
 
     await db.commit()
     return {
-        "total_checked": len(saved_items),
+        "total_checked": len(all_items),
         "verified_valid": verified_count,
         "corrupt_removed": corrupt_count,
         "missing_reset": missing_count,
         "orphaned_fragments_cleaned": cleaned_disk_fragments,
-        "message": f"Verified {verified_count} valid files. Cleaned {corrupt_count + cleaned_disk_fragments} corrupt/fragment files. Reset {corrupt_count + missing_count} records so they can be re-downloaded cleanly."
+        "message": f"Verified {verified_count} valid files on disk in {target_download_dir}. Cleaned {corrupt_count + cleaned_disk_fragments} corrupt/fragment files. Reset {missing_count} missing records."
     }
 
 @router.post("/reset-records")
