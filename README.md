@@ -59,6 +59,9 @@
   - **RAM**: ~170 MB – 250 MB idle (~350 MB under active batch downloads).
   - **Recommended LXC Allocation**: 2 GB RAM, 2 Cores (Intel / AMD x86_64 or ARM64).
 
+> [!NOTE]
+> **🖥️ Desktop-First Experience**: ZenGram is designed and optimized specifically for desktop and workstation browsers (Google Chrome, Firefox, Microsoft Edge, Brave). Mobile-friendly and small-screen responsive design is currently not a priority as the majority of power users manage their archiving workflows on desktop screens. Mobile responsive layouts may be explored in future releases.
+
 ---
 
 ## 🚀 Installation & Quick Start

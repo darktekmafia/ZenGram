@@ -11,6 +11,7 @@ This document tracks all system, backend, and frontend dependencies required to 
 - **Debian / Ubuntu**: Debian 11+, Ubuntu 20.04+
 - **Arch Linux / Manjaro**: Rolling release
 - **Enterprise Linux (RHEL / AlmaLinux / Rocky Linux)**: 9.x+
+- **Target Form Factor**: **Desktop Workstation Browsers (Desktop-First)**. Mobile-responsive layouts are not currently prioritized.
 
 ---
 
