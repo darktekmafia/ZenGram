@@ -135,7 +135,7 @@ export default function Header({
                 </button>
 
                 <button className="btn-primary" onClick={onRunSync} disabled={syncing}>
-                  <RefreshCw size={16} className={syncing ? 'spin' : ''} />
+                  <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
                   <span>{syncing ? 'Syncing...' : 'Run Full Sync'}</span>
                 </button>
               </>

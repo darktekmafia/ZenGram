@@ -504,11 +504,34 @@ export default function App() {
 
   const handleRunSync = async () => {
     setSyncing(true)
-    await fetchFeed()
-    await fetchDownloadedContent()
-    await fetchRateLimit()
-    await fetchSystemVersion()
-    setSyncing(false)
+    const startTime = Date.now()
+    try {
+      // 1. Trigger backend feed & followed accounts sync
+      const res = await fetch('/api/v1/feed/sync', { method: 'POST' })
+      if (!res.ok) {
+        await fetch('/api/v1/profiles/sync-following', { method: 'POST' })
+      }
+    } catch (err) {
+      console.error('Error running full sync:', err)
+    } finally {
+      // 2. Refresh local state
+      await Promise.allSettled([
+        fetchFeed(),
+        fetchProfiles(),
+        fetchDownloadedContent(),
+        fetchRateLimit(),
+        fetchSystemVersion(),
+        fetchStats?.(),
+        fetchHardware?.()
+      ])
+
+      // Ensure minimum visual feedback duration so user clearly sees "Syncing..." state
+      const elapsed = Date.now() - startTime
+      if (elapsed < 1200) {
+        await new Promise((resolve) => setTimeout(resolve, 1200 - elapsed))
+      }
+      setSyncing(false)
+    }
   }
 
   const handleSyncFollowed = async () => {

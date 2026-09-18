@@ -3,11 +3,56 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func
 from backend.app.database import get_db
-from backend.app.models import MediaItem, WatchedProfile
+from backend.app.models import MediaItem, WatchedProfile, UserSession
 from backend.app.schemas import MediaItemResponse, PaginatedMediaResponse
 from backend.app.services.scraper import InstagramScraperEngine
 
 router = APIRouter(prefix="/feed", tags=["Feed"])
+
+@router.post("/sync")
+async def trigger_full_sync(db: AsyncSession = Depends(get_db)):
+    """Trigger a full sync of followed accounts and feed items."""
+    res = await db.execute(select(UserSession).where(UserSession.is_active == True))
+    session = res.scalars().first()
+    cookie = session.session_cookie if session else None
+    username = session.username if session else "admin"
+
+    imported_accounts = 0
+    if cookie and cookie != "dummy_session_cookie":
+        try:
+            scraper = InstagramScraperEngine(session_cookie=cookie)
+            followed_list = await scraper.get_followed_accounts(username)
+            for item in followed_list:
+                acc_handle = item["username"]
+                q = await db.execute(select(WatchedProfile).where(WatchedProfile.username == acc_handle))
+                existing = q.scalars().first()
+                if not existing:
+                    new_p = WatchedProfile(
+                        username=acc_handle,
+                        ig_user_id=item.get("ig_user_id"),
+                        full_name=item.get("full_name"),
+                        profile_pic_url=item.get("profile_pic_url"),
+                        is_unfollowed_track=False
+                    )
+                    db.add(new_p)
+                    imported_accounts += 1
+                else:
+                    existing.is_unfollowed_track = False
+                    if item.get("full_name"):
+                        existing.full_name = item.get("full_name")
+                    if item.get("profile_pic_url"):
+                        existing.profile_pic_url = item.get("profile_pic_url")
+            await db.commit()
+        except Exception as e:
+            import logging
+            logging.getLogger("zengram.feed").error(f"Error syncing followed accounts during full sync: {e}")
+
+    return {
+        "status": "success",
+        "message": f"Full sync completed. Followed accounts synced: {imported_accounts}",
+        "new_accounts_imported": imported_accounts
+    }
+
 
 @router.get("", response_model=PaginatedMediaResponse)
 async def get_latest_feed(
