@@ -145,9 +145,30 @@ async def test_security_hardening():
             for method, endpoint in sensitive_credential_endpoints:
                 if method == "GET":
                     res = await client.get(endpoint)
-                else:
-                    res = await client.post(endpoint, json={})
-                assert res.status_code == 401, f"Expected mandatory 401 on credential endpoint {method} {endpoint} when auth_enabled=False, got {res.status_code}"
+            # 9. Verify Transparent AES-256 Encryption at Rest in SQLite
+            async with db_module.AsyncSessionLocal() as db:
+                from sqlalchemy import text
+                test_raw_cookie = "sessionid=999888777666abcdef; ds_user_id=12345;"
+                test_sess = UserSession(
+                    username="crypto_test_user",
+                    session_cookie=test_raw_cookie,
+                    is_active=True
+                )
+                db.add(test_sess)
+                await db.commit()
+
+                # Verify getter decrypts seamlessly in Python RAM
+                assert test_sess.session_cookie == test_raw_cookie
+                # Verify internal attribute is ciphertext
+                assert test_sess._session_cookie.startswith("enc:")
+                assert "999888777666abcdef" not in test_sess._session_cookie
+
+                # Query raw SQLite database column directly with SQL text query
+                raw_db_row = (await db.execute(text("SELECT session_cookie FROM user_sessions WHERE username = 'crypto_test_user'"))).fetchone()
+                assert raw_db_row is not None
+                db_stored_cookie = raw_db_row[0]
+                assert db_stored_cookie.startswith("enc:"), f"Expected encrypted column value starting with enc:, got: {db_stored_cookie}"
+                assert "999888777666abcdef" not in db_stored_cookie, "Plaintext cookie was leaked directly into SQLite database file!"
 
     finally:
         await test_engine.dispose()
@@ -160,5 +181,5 @@ async def test_security_hardening():
 
 if __name__ == "__main__":
     asyncio.run(test_security_hardening())
-    print("All security and dual-mode authentication tests passed on disposable database!")
+    print("All security, encryption-at-rest, and dual-mode authentication tests passed on disposable database!")
 

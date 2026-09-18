@@ -19,15 +19,29 @@ class UserSession(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
-    session_cookie: Mapped[str] = mapped_column(Text, nullable=False)
+    _session_cookie: Mapped[str] = mapped_column("session_cookie", Text, nullable=False, default="dummy_session_cookie")
     profile_pic_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
     last_validated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, nullable=True)
 
     @property
+    def session_cookie(self) -> str:
+        from backend.app.auth_utils import decrypt_secret
+        return decrypt_secret(self._session_cookie)
+
+    @session_cookie.setter
+    def session_cookie(self, value: Optional[str]):
+        from backend.app.auth_utils import encrypt_secret
+        if not value or value == "dummy_session_cookie":
+            self._session_cookie = "dummy_session_cookie"
+        else:
+            self._session_cookie = encrypt_secret(value)
+
+    @property
     def has_session_cookie(self) -> bool:
-        return bool(self.session_cookie and self.session_cookie != "dummy_session_cookie")
+        cookie = self.session_cookie
+        return bool(cookie and cookie != "dummy_session_cookie")
 
     @property
     def masked_cookie(self) -> Optional[str]:

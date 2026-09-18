@@ -1,14 +1,16 @@
 import os
+import base64
+import hashlib
 import datetime
 import logging
 from typing import Optional, Dict, Any
 import jwt
 import bcrypt
+from cryptography.fernet import Fernet
 from fastapi import Request, HTTPException, status, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from backend.app.database import get_db, AsyncSessionLocal
-from backend.app.models import AdminUser
 
 logger = logging.getLogger("zengram.auth")
 
@@ -68,6 +70,44 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 30
 
 
+def _get_encryption_cipher() -> Fernet:
+    """Derive a 32-byte urlsafe base64 Fernet key from the local persistent JWT_SECRET."""
+    key_bytes = hashlib.sha256(JWT_SECRET.encode("utf-8")).digest()
+    fernet_key = base64.urlsafe_b64encode(key_bytes)
+    return Fernet(fernet_key)
+
+
+def encrypt_secret(plaintext: Optional[str]) -> str:
+    """Encrypt sensitive token string for safe storage at rest (AES-256 Fernet)."""
+    if not plaintext or plaintext == "dummy_session_cookie":
+        return plaintext or "dummy_session_cookie"
+    if plaintext.startswith("enc:"):
+        return plaintext
+    try:
+        cipher = _get_encryption_cipher()
+        encrypted = cipher.encrypt(plaintext.encode("utf-8")).decode("utf-8")
+        return f"enc:{encrypted}"
+    except Exception as e:
+        logger.error(f"Error encrypting secret at rest: {e}")
+        return plaintext
+
+
+def decrypt_secret(ciphertext: Optional[str]) -> str:
+    """Decrypt sensitive token string from storage at rest (AES-256 Fernet)."""
+    if not ciphertext or ciphertext == "dummy_session_cookie":
+        return ciphertext or ""
+    if not ciphertext.startswith("enc:"):
+        return ciphertext  # Graceful fallback for unencrypted legacy databases
+    try:
+        raw_b64 = ciphertext[4:]
+        cipher = _get_encryption_cipher()
+        decrypted = cipher.decrypt(raw_b64.encode("utf-8")).decode("utf-8")
+        return decrypted
+    except Exception as e:
+        logger.error(f"Error decrypting secret at rest: {e}")
+        return ""
+
+
 def hash_password(password: str) -> str:
     """Hash a plaintext password using bcrypt."""
     salt = bcrypt.gensalt(rounds=12)
@@ -105,7 +145,7 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-async def get_current_admin(request: Request, db: AsyncSession = Depends(get_db)) -> AdminUser:
+async def get_current_admin(request: Request, db: AsyncSession = Depends(get_db)):
     """
     FastAPI dependency for general app endpoints:
     - Reads the secure HttpOnly cookie `zengram_token` / `instasave_token` (or `Authorization: Bearer <token>` header).
@@ -113,6 +153,7 @@ async def get_current_admin(request: Request, db: AsyncSession = Depends(get_db)
     - If authentication requirement has been explicitly disabled by the user, allows access.
     - If enabled and unauthenticated, raises HTTP 401 Unauthorized.
     """
+    from backend.app.models import AdminUser
     result = await db.execute(select(AdminUser))
     admin = result.scalars().first()
 
@@ -158,12 +199,13 @@ async def get_current_admin(request: Request, db: AsyncSession = Depends(get_db)
     return admin
 
 
-async def require_admin_auth(request: Request, db: AsyncSession = Depends(get_db)) -> AdminUser:
+async def require_admin_auth(request: Request, db: AsyncSession = Depends(get_db)):
     """
     Strict FastAPI dependency for credential management & security changes:
     - ALWAYS requires valid JWT authentication, regardless of whether general auth_enabled is toggled off.
     - Protects master password, Instagram session tokens, and security settings.
     """
+    from backend.app.models import AdminUser
     result = await db.execute(select(AdminUser))
     admin = result.scalars().first()
 
