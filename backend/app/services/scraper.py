@@ -3,7 +3,7 @@ import random
 import logging
 import datetime
 import httpx
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 
 logger = logging.getLogger("zengram.scraper")
 
@@ -135,6 +135,47 @@ def extract_user_id_from_cookies(cookies_dict: Dict[str, str], raw_cookie_str: O
             return match.group(1)
     return None
 
+def extract_carousel_slides_from_node(node: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+    """Extract full list of carousel slides (images/videos) from GraphQL or REST node dictionaries."""
+    slides = []
+    # 1. Web GraphQL edge_sidecar_to_children
+    sidecar_edges = node.get("edge_sidecar_to_children", {}).get("edges", [])
+    if sidecar_edges:
+        for idx, s_edge in enumerate(sidecar_edges, 1):
+            s_node = s_edge.get("node", {})
+            s_is_video = bool(s_node.get("is_video", False))
+            s_video_url = s_node.get("video_url")
+            s_display_url = s_node.get("display_url") or s_node.get("thumbnail_src")
+            slides.append({
+                "index": idx,
+                "display_url": s_display_url,
+                "url": s_video_url if (s_is_video and s_video_url) else s_display_url,
+                "video_url": s_video_url if s_is_video else None,
+                "media_type": "VIDEO" if s_is_video else "IMAGE",
+                "thumbnail_url": s_display_url
+            })
+    # 2. REST API carousel_media
+    elif "carousel_media" in node and isinstance(node["carousel_media"], list):
+        for idx, cm in enumerate(node["carousel_media"], 1):
+            is_vid = cm.get("media_type") == 2 or bool(cm.get("video_versions"))
+            vid_url = None
+            if is_vid and cm.get("video_versions"):
+                vid_url = cm["video_versions"][0].get("url")
+            disp_url = None
+            if cm.get("image_versions2", {}).get("candidates"):
+                disp_url = cm["image_versions2"]["candidates"][0].get("url")
+            elif cm.get("display_url"):
+                disp_url = cm.get("display_url")
+            slides.append({
+                "index": idx,
+                "display_url": disp_url,
+                "url": vid_url if (is_vid and vid_url) else disp_url,
+                "video_url": vid_url,
+                "media_type": "VIDEO" if is_vid else "IMAGE",
+                "thumbnail_url": disp_url
+            })
+    return slides if len(slides) > 0 else None
+
 class InstagramScraperEngine:
     def __init__(self, session_cookie: Optional[str] = None):
         self.session_cookie = session_cookie
@@ -163,7 +204,14 @@ class InstagramScraperEngine:
         delay = random.uniform(min_sec, max_sec)
         await asyncio.sleep(delay)
 
-    async def _fetch_via_playwright(self, username: str, limit: int = 0, progress_callback = None):
+    async def _fetch_via_playwright(
+        self,
+        username: str,
+        limit: int = 0,
+        progress_callback = None,
+        known_shortcodes: Optional[Set[str]] = None,
+        stop_at_shortcode: Optional[str] = None
+    ):
         try:
             from playwright.async_api import async_playwright
             async with async_playwright() as p:
@@ -272,8 +320,9 @@ class InstagramScraperEngine:
                 max_empty_cycles = 8
 
                 urls_to_visit = [f"https://www.instagram.com/{username}/", f"https://www.instagram.com/{username}/reels/"]
+                hit_checkpoint = False
                 for page_url in urls_to_visit:
-                    if len(seen_map) >= effective_limit:
+                    if len(seen_map) >= effective_limit or hit_checkpoint:
                         break
                     try:
                         if page_url != f"https://www.instagram.com/{username}/":
@@ -343,6 +392,14 @@ class InstagramScraperEngine:
 
                         for item in batch:
                             code = item['shortcode']
+                            if stop_at_shortcode and code == stop_at_shortcode:
+                                logger.info(f"Playwright reached stop_at_shortcode {code} for @{username}. Halting.")
+                                hit_checkpoint = True
+                                break
+                            if known_shortcodes and code in known_shortcodes:
+                                logger.info(f"Playwright encountered known shortcode {code} for @{username}. Halting.")
+                                hit_checkpoint = True
+                                break
                             if code not in seen_map:
                                 seen_map[code] = {
                                     "post_id": f"ig_{code}",
@@ -357,6 +414,9 @@ class InstagramScraperEngine:
                                     "comments_count": 0,
                                     "taken_at": extract_timestamp_from_shortcode(code) or datetime.datetime.utcnow()
                                 }
+
+                        if hit_checkpoint:
+                            break
 
                         current_total = len(seen_map)
                         if current_total > prev_total:
@@ -438,12 +498,20 @@ class InstagramScraperEngine:
             "bio": ""
         }
 
-    async def get_user_posts(self, username: str, limit: int = 50, progress_callback = None) -> List[Dict[str, Any]]:
-        """Fetch timeline posts & reels for a specific user."""
+    async def get_user_posts(
+        self,
+        username: str,
+        limit: int = 50,
+        progress_callback = None,
+        known_shortcodes: Optional[Set[str]] = None,
+        stop_at_shortcode: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Fetch timeline posts & reels for a specific user with delta checkpointing and deep carousel extraction."""
         rate_tracker.record_request()
         await self._async_delay()
 
         api_posts = []
+        hit_checkpoint = False
         # 1. Try web_profile_info API first
         url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
         async with httpx.AsyncClient(headers=self.headers, follow_redirects=True, timeout=10.0) as client:
@@ -468,13 +536,25 @@ class InstagramScraperEngine:
                                 all_edges.append(edge)
 
                     if all_edges:
-                        max_slice = limit if limit > 0 else len(all_edges)
-                        for edge in all_edges[:max_slice]:
+                        for edge in all_edges:
                             node = edge.get("node", {})
+                            shortcode = str(node.get("shortcode") or node.get("id"))
+
+                            # Delta Checkpoint: Halt immediately if we reach an already known/synced post
+                            if stop_at_shortcode and shortcode == stop_at_shortcode:
+                                logger.info(f"Delta sync reached stop_at_shortcode {shortcode} for @{username}.")
+                                hit_checkpoint = True
+                                break
+                            if known_shortcodes and shortcode in known_shortcodes:
+                                logger.info(f"Delta sync encountered known shortcode {shortcode} for @{username}.")
+                                hit_checkpoint = True
+                                break
+
+                            carousel_slides = extract_carousel_slides_from_node(node)
                             media_type = "IMAGE"
                             if node.get("is_video"):
                                 media_type = "VIDEO"
-                            elif node.get("__typename") == "GraphSidecar":
+                            elif node.get("__typename") == "GraphSidecar" or (carousel_slides and len(carousel_slides) > 1):
                                 media_type = "CAROUSEL"
 
                             caption = ""
@@ -482,7 +562,6 @@ class InstagramScraperEngine:
                             if cap_edges:
                                 caption = cap_edges[0].get("node", {}).get("text", "")
 
-                            shortcode = str(node.get("shortcode") or node.get("id"))
                             ts = node.get("taken_at_timestamp")
                             taken_dt = datetime.datetime.fromtimestamp(ts) if ts else extract_timestamp_from_shortcode(shortcode)
 
@@ -494,26 +573,50 @@ class InstagramScraperEngine:
                                 "display_url": node.get("display_url"),
                                 "thumbnail_url": node.get("thumbnail_src") or node.get("display_url"),
                                 "video_url": node.get("video_url") if node.get("is_video") else None,
+                                "carousel_media": carousel_slides,
                                 "caption": caption,
                                 "likes_count": node.get("edge_media_preview_like", {}).get("count", 0),
                                 "comments_count": node.get("edge_media_to_comment", {}).get("count", 0),
                                 "taken_at": taken_dt or datetime.datetime.utcnow(),
                             })
-                        if 0 < limit <= len(api_posts):
-                            return api_posts[:limit]
+                            if limit > 0 and len(api_posts) >= limit:
+                                break
+
+                        # If we reached the known checkpoint, or satisfied limit, return immediately
+                        if hit_checkpoint or (0 < limit <= len(api_posts)):
+                            return api_posts
+                        # If known_shortcodes was provided and non-empty and we processed web_profile_info edges without error,
+                        # all newly posted items were captured in api_posts.
+                        if known_shortcodes and len(known_shortcodes) > 0 and len(all_edges) > 0:
+                            return api_posts
             except Exception as e:
                 logger.error(f"Error fetching posts for {username}: {e}")
 
-        # 2. Playwright deep continuous scroll for full uncapped profile or larger limits
+        # 2. Playwright deep continuous scroll for initial uncapped profile or when web_profile_info is insufficient
         try:
-            _, playwright_posts = await self._fetch_via_playwright(username, limit=limit, progress_callback=progress_callback)
+            _, playwright_posts = await self._fetch_via_playwright(
+                username,
+                limit=limit,
+                progress_callback=progress_callback,
+                known_shortcodes=known_shortcodes,
+                stop_at_shortcode=stop_at_shortcode
+            )
             if playwright_posts and len(playwright_posts) > 0:
-                # Merge with api_posts
-                existing_codes = {p["shortcode"] for p in playwright_posts}
+                # Merge with api_posts, preserving richer api_posts metadata
+                api_map = {p["shortcode"]: p for p in api_posts}
+                merged = []
+                seen = set()
                 for p in api_posts:
-                    if p["shortcode"] not in existing_codes:
-                        playwright_posts.append(p)
-                return playwright_posts
+                    code = p["shortcode"]
+                    if code not in seen:
+                        seen.add(code)
+                        merged.append(p)
+                for p in playwright_posts:
+                    code = p["shortcode"]
+                    if code not in seen:
+                        seen.add(code)
+                        merged.append(api_map.get(code, p))
+                return merged
         except Exception as e:
             logger.warning(f"Playwright fallback scroll error for {username}: {e}")
 

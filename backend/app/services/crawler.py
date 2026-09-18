@@ -125,8 +125,33 @@ class FeedCrawlerService:
                             except Exception:
                                 pass
 
-                        # Fetch recent posts & stories
-                        posts_data = await scraper.get_user_posts(profile.username, limit=fetch_limit)
+                        # Fetch existing shortcodes from database for delta checkpointing
+                        sc_res = await db.execute(
+                            select(MediaItem.shortcode).where(
+                                (MediaItem.username.ilike(f"%{profile.username}%")) &
+                                (MediaItem.shortcode.isnot(None))
+                            )
+                        )
+                        known_codes = {sc for sc in sc_res.scalars().all() if sc}
+
+                        latest_sc_res = await db.execute(
+                            select(MediaItem.shortcode)
+                            .where(
+                                (MediaItem.username.ilike(f"%{profile.username}%")) &
+                                (MediaItem.shortcode.isnot(None))
+                            )
+                            .order_by(MediaItem.taken_at.desc().nullslast(), MediaItem.id.desc())
+                            .limit(1)
+                        )
+                        latest_code = latest_sc_res.scalars().first()
+
+                        # Fetch recent posts & stories with delta checkpointing
+                        posts_data = await scraper.get_user_posts(
+                            profile.username,
+                            limit=fetch_limit,
+                            known_shortcodes=known_codes,
+                            stop_at_shortcode=latest_code
+                        )
                         stories_data = await scraper.get_user_stories(profile.username, profile.ig_user_id)
                         combined_items = posts_data + stories_data
 
@@ -142,6 +167,7 @@ class FeedCrawlerService:
                                     display_url=item["display_url"],
                                     thumbnail_url=item["thumbnail_url"],
                                     video_url=item.get("video_url"),
+                                    carousel_media=item.get("carousel_media"),
                                     caption=item.get("caption"),
                                     likes_count=item.get("likes_count", 0),
                                     comments_count=item.get("comments_count", 0),
@@ -158,6 +184,8 @@ class FeedCrawlerService:
                                     existing.thumbnail_url = item["thumbnail_url"]
                                 if item.get("video_url"):
                                     existing.video_url = item["video_url"]
+                                if item.get("carousel_media") and not existing.carousel_media:
+                                    existing.carousel_media = item["carousel_media"]
 
                         profile.last_synced_at = datetime.datetime.utcnow()
                         await db.commit()

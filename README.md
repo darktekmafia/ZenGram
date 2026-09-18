@@ -12,27 +12,41 @@
   - Displays media exclusively from your followed accounts, sorted chronologically (**newest post first**) across all accounts using precise Instagram Snowflake timestamp decoding.
   - No algorithms, no ads, and no sponsored account injection.
   - Automatically isolates Tracked Accounts from the main feed to keep your daily dashboard uncluttered.
-- **Automated Background Feed Crawler & Periodic Scheduler**:
-  - **Full Sync on Demand**: Automatically scans recent media (posts, reels, stories) across all followed accounts in non-blocking background workers with live progress indicators.
+- **Automated Background Feed Crawler & Incremental Delta Checkpointing**:
+  - **Sub-Second Delta Sync**: Automatically halts scraper pagination as soon as known local posts are encountered (`known_shortcodes` & `stop_at_shortcode`), cutting sync times from 20+ seconds down to ~1–2 seconds.
+  - **Full Sync on Demand**: Scans recent media (posts, reels, stories) across all followed accounts in non-blocking background workers with live progress indicators.
   - **Periodic Auto-Sync**: Background timer automatically crawls fresh posts on a configurable schedule (default: every 6 hours).
-  - **Rate-Limit Safe**: Features polite jittered request pacing and rate tracking to keep your Instagram session healthy.
+  - **Rate-Limit Safe**: Polite jittered request pacing and quota tracking keep your Instagram session healthy.
+- **Story Highlights Viewer & Bulk Archiver**:
+  - **Highlights Carousel**: Displays permanent Story Highlight reels directly above creator feeds with circular gradient rings, live cover thumbnails, and story count badges.
+  - **Interactive Story Viewer**: Fullscreen story player with segment progress bars, video audio controls, and keyboard navigation.
+  - **Album & Slide Saving**: 1-click download of individual stories or entire highlight albums into organized `Highlights/<Album_Title>/` folders.
+  - **Batch Download Integration**: Optional toggle in the Batch Config modal to include or exclude highlight albums during bulk account archiving.
+- **Fullscreen Lightbox Gallery & Custom Media Player**:
+  - **Zero-Crop Canvas**: High-resolution viewport canvas (`object-fit: contain`) for uncropped photos, videos, and multi-slide carousels.
+  - **Interactive Photo Zoom & Pan**: Multi-level zoom (`1x`, `1.75x`, `2.5x`, `3.0x`), double-click toggle, and smooth mouse drag-panning.
+  - **Custom HTML5 Video Controls**: Volume memory, progress scrubbing, and playback speed adjustments (`0.5x`, `1.0x`, `1.5x`, `2.0x`).
+  - **Fast Post-to-Post Rail Navigation**: Browse seamlessly between posts via keyboard shortcuts (`[` / `]` and `Shift + ArrowLeft/Right`).
+  - **Metadata Drawer**: Collapsible sidebar with creator avatar, formatted dates, full caption, likes & comments stats, and quick-save actions.
+- **Dual Feed Display: Infinite Scroll & Numbered Pagination**:
+  - **User-Selectable Navigation**: Switch between seamless **Continuous Infinite Scroll** or classic **Numbered Pagination** (`Page 1, 2, 3...` with 24, 36, 48, or 96 items per page) to eliminate browser RAM strain when viewing large profiles.
+  - **Persistent Settings**: Selected display preference is saved across sessions.
 - **Dedicated Tracked Accounts Manager (Unfollowed)**:
   - Browse and archive public accounts without following them on Instagram.
   - **Bulk Import**: Import dozens of accounts simultaneously via single handle, multi-line text input (supporting spaces, commas, newlines, and URLs), or `.txt`/`.csv` file upload.
   - **High-Res Profile Photo Scraping**: Extracts authentic profile avatars with local image caching.
-- **High-Performance Server-Side Pagination**:
-  - Sub-25ms response times across tens of thousands of saved posts and feed records.
-  - Seamless infinite scrolling and chunk loading powered by `IntersectionObserver`.
 - **Interactive Multi-Slide Carousels & Video Player**:
   - Full carousel navigation with Next/Previous slide controls and slide counters (`Slide X of Y`).
-  - Seamless support for mixed-media carousels (combining photos and video slides).
+  - Deep manifest pre-caching stores child slide images and direct progressive video streams in SQLite without downloading unwanted files to disk.
   - Single-slide download, active slide deletion, or bulk `.zip` download of entire carousels.
-  - Progressive HTML5 `<video>` player with on-demand playback (no annoying autoplay on hover).
 - **Batch Archiving & Download Queue**:
   - Configurable batch downloader allowing users to archive up to N posts per account or specific post ranges.
   - Real-time Task Queue tab tracking active, completed, and pending download jobs.
   - Parallel download worker controls (1 to 8 workers, configurable in Settings).
   - Live in-app terminal console to monitor scraper and downloader events in real-time.
+- **1-Click Web-Based Software Updater**:
+  - Automatically checks the upstream Git repository for software updates in the background.
+  - 1-click **"Check for Updates"** and **"Install Update Now"** modal directly inside the Settings page with streaming terminal logs and automatic service restart.
 - **Local Disk Image Proxy & Reverse Proxy Compatibility**:
   - Dual Base64 and query image proxying prevents CDN token truncation behind Nginx Proxy Manager / Cloudflare.
   - Automatically caches avatar thumbnails locally on disk (`storage/cache/images/`) so images remain visible even after Instagram CDN token expiration.

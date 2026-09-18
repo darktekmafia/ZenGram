@@ -194,7 +194,11 @@ async def test_security_hardening():
                 assert legacy_sess.session_cookie == "legacy_plaintext_session_12345"
 
             # 11. Verify Unresolvable Hostname / DNS failure fails closed
-            assert not _is_safe_image_proxy_url("https://nonexistent-fake-subdomain.cdninstagram.com/pic.jpg")
+            from unittest.mock import patch
+            import socket
+            with patch("socket.getaddrinfo", side_effect=socket.gaierror(socket.EAI_NONAME, "Name or service not known")):
+                assert not _is_safe_image_proxy_url("https://scontent.cdninstagram.com/pic.jpg")
+            assert not _is_safe_image_proxy_url("https://unresolvable.invalid/pic.jpg")
 
             # 12. Verify URL parser rejects userinfo, non-standard ports, and non-HTTP schemes
             assert not _is_safe_image_proxy_url("https://admin:pass@scontent.cdninstagram.com/pic.jpg")

@@ -244,7 +244,32 @@ async def fetch_user_media(username: str, limit: int = Query(0, ge=0, le=5000), 
             wp.profile_pic_url = prof_info["profile_pic_url"]
             await db.commit()
 
-    posts_data = await scraper.get_user_posts(username, limit=limit)
+    # Fetch existing shortcodes for delta checkpointing
+    sc_res = await db.execute(
+        select(MediaItem.shortcode).where(
+            (MediaItem.username.ilike(f"%{username}%")) &
+            (MediaItem.shortcode.isnot(None))
+        )
+    )
+    known_codes = {sc for sc in sc_res.scalars().all() if sc}
+
+    latest_sc_res = await db.execute(
+        select(MediaItem.shortcode)
+        .where(
+            (MediaItem.username.ilike(f"%{username}%")) &
+            (MediaItem.shortcode.isnot(None))
+        )
+        .order_by(MediaItem.taken_at.desc().nullslast(), MediaItem.id.desc())
+        .limit(1)
+    )
+    latest_code = latest_sc_res.scalars().first()
+
+    posts_data = await scraper.get_user_posts(
+        username,
+        limit=limit,
+        known_shortcodes=known_codes,
+        stop_at_shortcode=latest_code
+    )
     stories_data = await scraper.get_user_stories(username, wp.ig_user_id if wp else None)
     
     combined_items = posts_data + stories_data
@@ -262,6 +287,7 @@ async def fetch_user_media(username: str, limit: int = Query(0, ge=0, le=5000), 
                 display_url=item["display_url"],
                 thumbnail_url=item["thumbnail_url"],
                 video_url=item.get("video_url"),
+                carousel_media=item.get("carousel_media"),
                 caption=item.get("caption"),
                 likes_count=item.get("likes_count", 0),
                 comments_count=item.get("comments_count", 0),
@@ -278,7 +304,14 @@ async def fetch_user_media(username: str, limit: int = Query(0, ge=0, le=5000), 
                 existing.thumbnail_url = item["thumbnail_url"]
             if item.get("video_url"):
                 existing.video_url = item["video_url"]
+            if item.get("carousel_media") and not existing.carousel_media:
+                existing.carousel_media = item["carousel_media"]
             await db.commit()
+
+    if wp:
+        import datetime
+        wp.last_synced_at = datetime.datetime.utcnow()
+        await db.commit()
 
     # Query all stored media items for this user
     all_media = await db.execute(
