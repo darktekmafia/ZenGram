@@ -96,11 +96,15 @@ The installer automatically:
 
 ---
 
-### 3. Accessing the Web Interface
+### 3. Accessing the Web Interface & First-Time Setup
 
 Once installation finishes, open your browser:
 - **Local Machine**: [http://localhost:8484](http://localhost:8484)
 - **Remote Server / Proxmox LXC**: `http://<YOUR_SERVER_IP>:8484`
+
+> [!IMPORTANT]
+> **First-Time Master Setup**:
+> On your very first visit to the web interface after installation, ZenGram will automatically display the **Initial Setup Screen**. You will be prompted to create your administrator username and secure master password. Once configured, all future access and remote sessions will require these credentials to unlock the application.
 
 ---
 
