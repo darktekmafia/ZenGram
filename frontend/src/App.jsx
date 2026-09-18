@@ -1063,6 +1063,66 @@ export default function App() {
     setResettingDownloads(false)
   }
 
+  // Server Backups Management
+  const [serverBackups, setServerBackups] = useState([])
+  const [loadingBackups, setLoadingBackups] = useState(false)
+  const [creatingServerBackup, setCreatingServerBackup] = useState(false)
+  const [backupActionStatus, setBackupActionStatus] = useState(null)
+
+  const fetchServerBackups = async () => {
+    setLoadingBackups(true)
+    try {
+      const res = await fetch('/api/v1/system/backup/list')
+      if (res.ok) {
+        const data = await res.json()
+        setServerBackups(data.backups || [])
+      }
+    } catch (err) {
+      console.error('Error fetching server backups:', err)
+    } finally {
+      setLoadingBackups(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'settings') {
+      fetchServerBackups()
+    }
+  }, [activeTab, expandedSections.maintenance])
+
+  const handleCreateServerBackup = async () => {
+    setCreatingServerBackup(true)
+    setBackupActionStatus(null)
+    try {
+      const res = await fetch('/api/v1/system/backup/create-local', { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        setBackupActionStatus({ type: 'success', message: `Saved backup on server: ${data.filename} (${data.size_formatted})` })
+        fetchServerBackups()
+      } else {
+        const err = await res.json()
+        setBackupActionStatus({ type: 'error', message: err.detail || 'Failed to create server backup' })
+      }
+    } catch (err) {
+      setBackupActionStatus({ type: 'error', message: String(err) })
+    } finally {
+      setCreatingServerBackup(false)
+    }
+  }
+
+  const handleDeleteServerBackup = async (filename) => {
+    if (!window.confirm(`Delete backup "${filename}" from server?`)) return
+    try {
+      const res = await fetch(`/api/v1/system/backup/server/${encodeURIComponent(filename)}`, { method: 'DELETE' })
+      if (res.ok) {
+        setBackupActionStatus({ type: 'success', message: `Deleted ${filename}` })
+        fetchServerBackups()
+      }
+    } catch (err) {
+      console.error('Error deleting backup:', err)
+    }
+  }
+
   const activeConsoleJob = jobs.find((j) => j.id === activeConsoleJobId) || jobs.find((j) => j.status === 'in_progress') || jobs[0] || null
   const dockedJob = isConsoleDocked && activeConsoleJob ? activeConsoleJob : null
 
@@ -2914,18 +2974,21 @@ export default function App() {
 
                 {expandedSections.maintenance && (
                   <div className="settings-accordion-body">
-                    <div className="maintenance-item" style={{ borderLeft: '3px solid #6366f1', paddingLeft: '12px', marginBottom: '16px' }}>
-                      <div style={{ fontWeight: '600', fontSize: '0.92rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                        <Database size={17} style={{ color: '#818cf8' }} />
-                        <span>Download Full System Backup (.zip)</span>
-                        <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '12px', background: 'rgba(99, 102, 241, 0.15)', color: '#a5b4fc', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
-                          Database & Encryption Key
+                    <div className="maintenance-item" style={{ borderLeft: '3px solid #6366f1', marginBottom: '20px', background: 'rgba(99, 102, 241, 0.04)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
+                      <div style={{ fontWeight: '600', fontSize: '0.94rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <Database size={18} style={{ color: '#818cf8' }} />
+                          <span>Database & Encryption Key Backup Manager</span>
+                        </div>
+                        <span style={{ fontSize: '0.72rem', padding: '3px 10px', borderRadius: '12px', background: 'rgba(99, 102, 241, 0.15)', color: '#a5b4fc', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
+                          WAL-Safe SQLite + Hardware AES Key
                         </span>
                       </div>
-                      <p className="settings-description" style={{ marginTop: '6px' }}>
-                        Generates a consistent WAL-safe hot snapshot of your SQLite database (<code>zengram.db</code>) packaged together with your hardware-isolated encryption key (<code>jwt_secret.key</code>) and snapshot metadata. Restoring this archive fully recovers all feeds, tracked accounts, and encrypted credentials.
+                      <p className="settings-description" style={{ marginTop: '8px', lineHeight: '1.5' }}>
+                        Generates a hot point-in-time snapshot of your active database (<code>zengram.db</code>) packaged together with your isolated AES-256 decryption key (<code>jwt_secret.key</code>) and manifest metadata. You can stream it directly to your browser or archive it safely directly on the server filesystem (<code style={{ background: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: '4px' }}>storage/backups/</code>).
                       </p>
-                      <div style={{ marginTop: '10px' }}>
+
+                      <div style={{ marginTop: '14px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                         <a
                           href="/api/v1/system/backup/download"
                           download
@@ -2938,14 +3001,170 @@ export default function App() {
                             background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
                             color: '#ffffff',
                             fontWeight: '600',
-                            padding: '9px 18px',
+                            padding: '8px 16px',
                             borderRadius: '8px',
+                            fontSize: '0.86rem',
                             boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)'
                           }}
                         >
-                          <Download size={16} />
-                          <span>Download Backup Archive (.zip)</span>
+                          <Download size={15} />
+                          <span>Download to Browser (.zip)</span>
                         </a>
+
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={handleCreateServerBackup}
+                          disabled={creatingServerBackup}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            background: 'rgba(255, 255, 255, 0.05)',
+                            borderColor: 'rgba(255, 255, 255, 0.15)',
+                            padding: '8px 16px',
+                            borderRadius: '8px',
+                            fontSize: '0.86rem'
+                          }}
+                        >
+                          {creatingServerBackup ? <Loader2 size={15} className="animate-spin" /> : <HardDrive size={15} style={{ color: '#34d399' }} />}
+                          <span>{creatingServerBackup ? 'Saving to Server...' : 'Save Backup on Server'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={fetchServerBackups}
+                          disabled={loadingBackups}
+                          title="Refresh server backups list"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            fontSize: '0.86rem'
+                          }}
+                        >
+                          <RefreshCw size={14} className={loadingBackups ? 'animate-spin' : ''} />
+                          <span>Refresh</span>
+                        </button>
+                      </div>
+
+                      {backupActionStatus && (
+                        <div style={{
+                          marginTop: '12px',
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          fontSize: '0.82rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          background: backupActionStatus.type === 'error' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                          color: backupActionStatus.type === 'error' ? '#f87171' : '#34d399',
+                          border: `1px solid ${backupActionStatus.type === 'error' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)'}`
+                        }}>
+                          {backupActionStatus.type === 'error' ? <AlertCircle size={15} /> : <CheckCircle2 size={15} />}
+                          <span>{backupActionStatus.message}</span>
+                        </div>
+                      )}
+
+                      {/* Server Backups List */}
+                      <div style={{ marginTop: '16px', borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                          <span style={{ fontSize: '0.82rem', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            Server-Side Backups ({serverBackups.length})
+                          </span>
+                          <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                            Location: <code>storage/backups/</code>
+                          </span>
+                        </div>
+
+                        {loadingBackups && serverBackups.length === 0 ? (
+                          <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.84rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                            <Loader2 size={16} className="animate-spin" /> Loading server backups...
+                          </div>
+                        ) : serverBackups.length === 0 ? (
+                          <div style={{ padding: '14px', background: 'rgba(0, 0, 0, 0.2)', borderRadius: '6px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                            No server-side backup snapshots found. Click <strong>"Save Backup on Server"</strong> above to create your first server restore point.
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '200px', overflowY: 'auto' }}>
+                            {serverBackups.map((b) => (
+                              <div
+                                key={b.filename}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  padding: '8px 12px',
+                                  background: 'rgba(0, 0, 0, 0.25)',
+                                  borderRadius: '6px',
+                                  border: '1px solid rgba(255, 255, 255, 0.05)',
+                                  fontSize: '0.82rem'
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                                  <Database size={15} style={{ color: '#818cf8', flexShrink: 0 }} />
+                                  <div style={{ minWidth: 0, flex: 1 }}>
+                                    <div style={{ fontWeight: '600', color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={b.filename}>
+                                      {b.filename}
+                                    </div>
+                                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', gap: '8px', alignItems: 'center', marginTop: '2px' }}>
+                                      <span>{b.size_formatted}</span>
+                                      <span>•</span>
+                                      <span>{b.created_relative}</span>
+                                      <span>•</span>
+                                      <span style={{ fontFamily: 'monospace' }}>{b.created_at ? b.created_at.slice(0, 19).replace('T', ' ') : ''}</span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                                  <a
+                                    href={`/api/v1/system/backup/server/${encodeURIComponent(b.filename)}`}
+                                    download
+                                    className="btn-secondary"
+                                    title="Download this backup file"
+                                    style={{
+                                      padding: '4px 8px',
+                                      fontSize: '0.78rem',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      textDecoration: 'none',
+                                      color: '#a5b4fc'
+                                    }}
+                                  >
+                                    <Download size={13} />
+                                    <span>Download</span>
+                                  </a>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteServerBackup(b.filename)}
+                                    title="Delete from server"
+                                    style={{
+                                      background: 'transparent',
+                                      border: 'none',
+                                      color: '#f87171',
+                                      cursor: 'pointer',
+                                      padding: '4px 6px',
+                                      borderRadius: '4px',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      transition: 'background 0.2s'
+                                    }}
+                                    onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)')}
+                                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
 

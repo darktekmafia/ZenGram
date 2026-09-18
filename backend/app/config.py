@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = f"sqlite+aiosqlite:///{BASE_DIR}/zengram.db"
     DOWNLOAD_DIR: Path = DEFAULT_DOWNLOAD_DIR
     SESSIONS_DIR: Path = BASE_DIR / "storage" / "sessions"
+    BACKUPS_DIR: Path = BASE_DIR / "storage" / "backups"
     
     # Rate Limiting & Safety Defaults
     MAX_REQUESTS_PER_HOUR: int = 150
@@ -33,3 +34,4 @@ settings = Settings()
 # Ensure required directories exist
 os.makedirs(settings.DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(settings.SESSIONS_DIR, exist_ok=True)
+os.makedirs(settings.BACKUPS_DIR, mode=0o700, exist_ok=True)

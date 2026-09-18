@@ -312,9 +312,9 @@ def get_git_info(fetch_remote: bool = False) -> Dict[str, Any]:
                             info["latest_version"] = word.lstrip("v")
                             break
 
-                # Fetch list of pending upstream commits with author and relative date
+                # Fetch list of pending upstream commits with hash, subject, author, relative date, and body
                 res_log = subprocess.run(
-                    ["git", "log", f"HEAD..{remote_ref}", "--format=%H|%s|%an|%ad", "--date=relative", "-n", "20"],
+                    ["git", "log", f"HEAD..{remote_ref}", "--format=%H\x1f%s\x1f%an\x1f%ad\x1f%b\x1e", "--date=relative", "-n", "30"],
                     cwd=str(base_dir),
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
@@ -323,14 +323,44 @@ def get_git_info(fetch_remote: bool = False) -> Dict[str, Any]:
                 )
                 pending = []
                 if res_log.returncode == 0 and res_log.stdout.strip():
-                    for line in res_log.stdout.strip().splitlines():
-                        parts = line.split("|", 3)
-                        if len(parts) == 4:
+                    raw_entries = res_log.stdout.strip().split("\x1e")
+                    for entry in raw_entries:
+                        entry = entry.strip()
+                        if not entry:
+                            continue
+                        parts = entry.split("\x1f")
+                        if len(parts) >= 4:
+                            c_hash = parts[0][:7]
+                            c_msg = parts[1].strip()
+                            c_author = parts[2].strip()
+                            c_date = parts[3].strip()
+                            c_body = parts[4].strip() if len(parts) > 4 else None
+                            if c_body == "":
+                                c_body = None
+
+                            # Categorize commit
+                            msg_lower = c_msg.lower()
+                            category = "Update"
+                            if msg_lower.startswith("feat") or "feature:" in msg_lower:
+                                category = "Feature"
+                            elif msg_lower.startswith("fix") or "bugfix:" in msg_lower:
+                                category = "Fix"
+                            elif msg_lower.startswith("sec") or "security:" in msg_lower:
+                                category = "Security"
+                            elif msg_lower.startswith("perf") or "performance:" in msg_lower:
+                                category = "Performance"
+                            elif msg_lower.startswith("docs") or "doc:" in msg_lower:
+                                category = "Docs"
+                            elif msg_lower.startswith("refactor"):
+                                category = "Refactor"
+
                             pending.append(CommitSummary(
-                                hash=parts[0][:7],
-                                message=parts[1],
-                                author=parts[2],
-                                date=parts[3]
+                                hash=c_hash,
+                                message=c_msg,
+                                body=c_body,
+                                author=c_author,
+                                date=c_date,
+                                category=category
                             ))
                 info["pending_commits"] = pending
 
@@ -691,24 +721,26 @@ async def get_system_hardware(db: AsyncSession = Depends(get_db)):
 # Full Database & Security Key Backup
 # -------------------------------------------------------------
 
-@router.get("/backup/download")
-async def download_database_backup(
-    current_admin: AdminUser = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db)
-):
-    """Generate a consistent WAL-safe SQLite database snapshot bundled with jwt_secret.key in a timestamped ZIP."""
+async def _create_backup_zip_bundle(db: AsyncSession, dest_zip_path: Optional[str] = None) -> Tuple[str, str, int]:
+    """
+    Generate a consistent WAL-safe SQLite database snapshot bundled with jwt_secret.key in a ZIP archive.
+    Returns (zip_file_path, filename, size_bytes).
+    """
     import sqlite3
     import tempfile
     import zipfile
     import json
-    from fastapi.responses import FileResponse
-    from starlette.background import BackgroundTask
     from backend.app.auth_utils import SECRET_FILE_PATH, OLD_SECRET_FILE_PATH
 
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-    temp_zip = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-    temp_zip_path = temp_zip.name
-    temp_zip.close()
+    filename = f"zengram_backup_{timestamp_str}.zip"
+
+    if dest_zip_path:
+        zip_path = dest_zip_path
+    else:
+        temp_zip = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+        zip_path = temp_zip.name
+        temp_zip.close()
 
     temp_db_snap = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     temp_db_snap_path = temp_db_snap.name
@@ -753,36 +785,187 @@ async def download_database_backup(
         elif os.path.exists(OLD_SECRET_FILE_PATH):
             key_file_to_pack = OLD_SECRET_FILE_PATH
 
-        with zipfile.ZipFile(temp_zip_path, "w", zipfile.ZIP_DEFLATED) as zip_f:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zip_f:
             if os.path.exists(temp_db_snap_path) and os.path.getsize(temp_db_snap_path) > 0:
                 zip_f.write(temp_db_snap_path, arcname="zengram.db")
             if key_file_to_pack:
                 zip_f.write(key_file_to_pack, arcname="jwt_secret.key")
             zip_f.writestr("metadata.json", json.dumps(meta_info, indent=2))
 
-        def cleanup_temp_files():
+        # Enforce secure file permissions (0600) on generated backup file
+        try:
+            os.chmod(zip_path, 0o600)
+        except Exception:
+            pass
+
+        size_bytes = os.path.getsize(zip_path) if os.path.exists(zip_path) else 0
+        return zip_path, filename, size_bytes
+
+    finally:
+        if os.path.exists(temp_db_snap_path):
             try:
-                if os.path.exists(temp_zip_path):
-                    os.remove(temp_zip_path)
-                if os.path.exists(temp_db_snap_path):
-                    os.remove(temp_db_snap_path)
+                os.remove(temp_db_snap_path)
             except Exception:
                 pass
 
-        filename = f"zengram_backup_{timestamp_str}.zip"
+
+@router.get("/backup/download")
+async def download_database_backup(
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Generate a consistent WAL-safe SQLite database snapshot bundled with jwt_secret.key and stream to browser."""
+    from fastapi.responses import FileResponse
+    from starlette.background import BackgroundTask
+
+    try:
+        zip_path, filename, _ = await _create_backup_zip_bundle(db)
+
+        def cleanup_temp_file():
+            try:
+                if os.path.exists(zip_path):
+                    os.remove(zip_path)
+            except Exception:
+                pass
+
         return FileResponse(
-            path=temp_zip_path,
+            path=zip_path,
             filename=filename,
             media_type="application/zip",
-            background=BackgroundTask(cleanup_temp_files)
+            background=BackgroundTask(cleanup_temp_file)
         )
     except Exception as e:
         logger.error(f"Error generating backup archive: {e}")
-        try:
-            if os.path.exists(temp_zip_path):
-                os.remove(temp_zip_path)
-            if os.path.exists(temp_db_snap_path):
-                os.remove(temp_db_snap_path)
-        except Exception:
-            pass
         raise HTTPException(status_code=500, detail=f"Failed to generate backup archive: {str(e)}")
+
+
+@router.post("/backup/create-local")
+async def create_local_server_backup(
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Generate a consistent WAL-safe database backup and persist it locally on the server filesystem in storage/backups/."""
+    from backend.app.schemas import BackupFileInfo
+
+    try:
+        backups_dir = settings.BACKUPS_DIR
+        os.makedirs(backups_dir, mode=0o700, exist_ok=True)
+
+        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"zengram_backup_{timestamp_str}.zip"
+        dest_path = backups_dir / filename
+
+        _, _, size_bytes = await _create_backup_zip_bundle(db, dest_zip_path=str(dest_path))
+
+        return BackupFileInfo(
+            filename=filename,
+            size_bytes=size_bytes,
+            size_formatted=format_bytes(size_bytes),
+            created_at=datetime.utcnow().isoformat() + "Z",
+            created_at_relative="Just now"
+        )
+    except Exception as e:
+        logger.error(f"Error creating local server backup: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save server backup: {str(e)}")
+
+
+@router.get("/backup/list")
+async def list_server_backups(
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """List all saved database backups stored locally on the server filesystem."""
+    from backend.app.schemas import BackupListResponse, BackupFileInfo
+
+    backups_dir = settings.BACKUPS_DIR
+    if not backups_dir.exists():
+        return BackupListResponse(backups=[], total_count=0, total_size_formatted="0 B")
+
+    items = []
+    total_size = 0
+    try:
+        for f in os.listdir(backups_dir):
+            if f.endswith(".zip") and f.startswith("zengram_backup_"):
+                f_path = backups_dir / f
+                if f_path.is_file():
+                    stat = f_path.stat()
+                    size = stat.st_size
+                    total_size += size
+                    mtime = datetime.fromtimestamp(stat.st_mtime)
+                    
+                    # Human relative time
+                    now = datetime.now()
+                    diff = now - mtime
+                    if diff.days > 0:
+                        rel = f"{diff.days}d ago"
+                    elif diff.seconds >= 3600:
+                        rel = f"{diff.seconds // 3600}h ago"
+                    elif diff.seconds >= 60:
+                        rel = f"{diff.seconds // 60}m ago"
+                    else:
+                        rel = "Just now"
+
+                    items.append(BackupFileInfo(
+                        filename=f,
+                        size_bytes=size,
+                        size_formatted=format_bytes(size),
+                        created_at=mtime.isoformat(),
+                        created_at_relative=rel
+                    ))
+
+        # Sort newest first
+        items.sort(key=lambda x: x.created_at, reverse=True)
+    except Exception as e:
+        logger.warning(f"Error listing server backups: {e}")
+
+    return BackupListResponse(
+        backups=items,
+        total_count=len(items),
+        total_size_formatted=format_bytes(total_size)
+    )
+
+
+@router.get("/backup/server/{filename}")
+async def download_server_backup_file(
+    filename: str,
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """Download a specific stored backup archive from the server."""
+    from fastapi.responses import FileResponse
+
+    # Sanitize filename against directory traversal
+    clean_name = Path(filename).name
+    if not clean_name.endswith(".zip") or not clean_name.startswith("zengram_backup_") or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Invalid backup filename")
+
+    target_path = settings.BACKUPS_DIR / clean_name
+    if not target_path.exists() or not target_path.is_file():
+        raise HTTPException(status_code=404, detail="Backup file not found on server")
+
+    return FileResponse(
+        path=str(target_path),
+        filename=clean_name,
+        media_type="application/zip"
+    )
+
+
+@router.delete("/backup/server/{filename}")
+async def delete_server_backup_file(
+    filename: str,
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """Delete an old stored backup archive from the server to free storage space."""
+    clean_name = Path(filename).name
+    if not clean_name.endswith(".zip") or not clean_name.startswith("zengram_backup_") or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Invalid backup filename")
+
+    target_path = settings.BACKUPS_DIR / clean_name
+    if not target_path.exists() or not target_path.is_file():
+        raise HTTPException(status_code=404, detail="Backup file not found")
+
+    try:
+        os.remove(target_path)
+        return {"message": f"Backup {clean_name} deleted successfully"}
+    except Exception as e:
+        logger.error(f"Error deleting server backup {clean_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete backup file: {str(e)}")
+

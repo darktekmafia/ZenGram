@@ -44,18 +44,20 @@
   - Real-time Task Queue tab tracking active, completed, and pending download jobs.
   - Parallel download worker controls (1 to 8 workers, configurable in Settings).
   - Live in-app terminal console to monitor scraper and downloader events in real-time.
-- **1-Click Web-Based Software Updater**:
+- **1-Click Web-Based Software Updater & Multi-Commit Release Manager**:
   - Automatically checks the upstream Git repository for software updates in the background.
-  - 1-click **"Check for Updates"** and **"Install Update Now"** modal directly inside the Settings page with streaming terminal logs and automatic service restart.
+  - **Comprehensive Multi-Commit Breakdown**: When upstream updates contain multiple commits, ZenGram categorizes each change (✨ Features, 🐛 Fixes, 🔒 Security, ⚡ Performance, ♻️ Refactoring, 📄 Docs), displays author and relative dates, and provides expandable commit bodies for complete transparency before applying updates.
+  - 1-click **"Apply Web Update Now"** modal directly inside the Settings page with streaming terminal logs and automatic service restart.
 - **Local Disk Image Proxy & Reverse Proxy Compatibility**:
   - Dual Base64 and query image proxying prevents CDN token truncation behind Nginx Proxy Manager / Cloudflare.
   - Automatically caches avatar thumbnails locally on disk (`storage/cache/images/`) so images remain visible even after Instagram CDN token expiration.
 - **Real-Time System Resource Telemetry**:
   - Built-in live CPU, RAM, Swap, and Disk volume meters.
   - Automatic detection of Proxmox LXC containers, Docker, and Host environments.
-- **1-Click Full Database & Encryption Key Backup**:
-  - Download a complete, consistent WAL-safe snapshot of `zengram.db` bundled with your hardware-isolated encryption key (`jwt_secret.key`) in a timestamped `.zip` directly from the Settings page.
-  - Zero downtime hot snapshotting with automatic post-stream temp file cleanup.
+- **Full Database & Encryption Key Backup Manager (Browser & Server Storage)**:
+  - **Browser Download**: Download a complete, consistent WAL-safe snapshot of `zengram.db` bundled with your hardware-isolated encryption key (`jwt_secret.key`) and metadata manifest in a timestamped `.zip` directly to your local computer.
+  - **Server-Side Backups**: Create and persist point-in-time backup archives directly on the server filesystem (`storage/backups/`) with owner-only (`0600`) permissions, complete with in-app listing, direct download, and deletion management.
+  - Zero downtime hot snapshotting with automatic temp file cleanup.
 - **Master Security & Access Control**:
   - **Master Password Authentication**: Built-in administrator account secured with salted Bcrypt password hashing.
   - **Session Security**: Cryptographically signed JSON Web Tokens (JWT) stored in secure `HttpOnly`, `SameSite=Lax` cookies.
@@ -158,8 +160,10 @@ All settings can be customized through the **Settings** page in the web UI:
 
 ## 💾 Database Backups & Maintenance
 
-### 1. 1-Click Web Backup (Recommended)
-Inside the web UI under **Settings ➔ Database & Storage Maintenance**, click **"Download Backup Archive (.zip)"**. ZenGram generates a consistent WAL-safe hot snapshot of `zengram.db` packaged with your encryption key (`jwt_secret.key`) and snapshot metadata into a single `.zip` file downloaded directly to your computer.
+### 1. 1-Click Web Backup Manager (Recommended)
+Inside the web UI under **Settings ➔ Database & Storage Maintenance**, the **Database & Encryption Key Backup Manager** provides two options:
+- **Download to Browser (.zip)**: Generates a consistent WAL-safe hot snapshot of `zengram.db` packaged with your encryption key (`jwt_secret.key`) and metadata manifest, streamed directly to your browser.
+- **Save Backup on Server**: Generates and persists timestamped backups in `storage/backups/` directly on the server filesystem. Backups are stored with strict `0600` permissions and can be downloaded or deleted directly from the web interface.
 
 ### 2. Manual Terminal Hot Backup
 ZenGram operates SQLite in **WAL (Write-Ahead Logging)** mode for high-concurrency performance. To create a consistent command-line backup without copying in-flight transaction locks:
@@ -170,7 +174,7 @@ sqlite3 zengram.db ".backup zengram_backup_$(date +%Y%m%d).db"
 ```
 
 > [!TIP]
-> Do not use plain `cp zengram.db backup.db` while the server is active, as transactions held in `zengram.db-wal` may be excluded from the snapshot. Always use the 1-Click Web Backup or `sqlite3 .backup`.
+> Do not use plain `cp zengram.db backup.db` while the server is active, as transactions held in `zengram.db-wal` may be excluded from the snapshot. Always use the in-app Backup Manager or `sqlite3 .backup`.
 
 ---
 

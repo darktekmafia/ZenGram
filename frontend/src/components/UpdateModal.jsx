@@ -13,7 +13,9 @@ import {
   Clock,
   User,
   Info,
-  Layers
+  Layers,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react'
 
 export default function UpdateModal({
@@ -27,9 +29,36 @@ export default function UpdateModal({
 }) {
   const [copied, setCopied] = useState(false)
   const isUpdateAvailable = !!systemVersion?.update_available
+  const [expandedCommits, setExpandedCommits] = useState({})
   
   // Decide active tab
   const [activeTab, setActiveTab] = useState('changelog')
+
+  const toggleExpandCommit = (key) => {
+    setExpandedCommits(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }))
+  }
+
+  const getCategoryStyle = (cat) => {
+    switch ((cat || '').toLowerCase()) {
+      case 'feature':
+        return { bg: 'rgba(139, 92, 246, 0.2)', color: '#c4b5fd', border: 'rgba(139, 92, 246, 0.4)', icon: '✨', label: 'Feature' }
+      case 'fix':
+        return { bg: 'rgba(59, 130, 246, 0.2)', color: '#93c5fd', border: 'rgba(59, 130, 246, 0.4)', icon: '🐛', label: 'Fix' }
+      case 'security':
+        return { bg: 'rgba(239, 68, 68, 0.2)', color: '#fca5a5', border: 'rgba(239, 68, 68, 0.4)', icon: '🔒', label: 'Security' }
+      case 'performance':
+        return { bg: 'rgba(16, 185, 129, 0.2)', color: '#6ee7b7', border: 'rgba(16, 185, 129, 0.4)', icon: '⚡', label: 'Performance' }
+      case 'docs':
+        return { bg: 'rgba(245, 158, 11, 0.2)', color: '#fcd34d', border: 'rgba(245, 158, 11, 0.4)', icon: '📄', label: 'Docs' }
+      case 'refactor':
+        return { bg: 'rgba(168, 85, 247, 0.2)', color: '#d8b4fe', border: 'rgba(168, 85, 247, 0.4)', icon: '♻️', label: 'Refactor' }
+      default:
+        return { bg: 'rgba(148, 163, 184, 0.15)', color: '#cbd5e1', border: 'rgba(148, 163, 184, 0.3)', icon: '📦', label: 'Update' }
+    }
+  }
 
   useEffect(() => {
     if (initialTab === 'installed') {
@@ -216,9 +245,42 @@ export default function UpdateModal({
 
               {/* Commit List / Changelog */}
               <div>
-                <div style={{ fontSize: '0.82rem', fontWeight: '600', color: 'var(--text-main)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Layers size={14} style={{ color: '#8b5cf6' }} />
-                  <span>Incoming Changes in this Update</span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ fontSize: '0.82rem', fontWeight: '600', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Layers size={14} style={{ color: '#8b5cf6' }} />
+                    <span>Incoming Changes in this Update ({pendingCommits.length})</span>
+                  </div>
+
+                  {/* Category Summary Pills */}
+                  {pendingCommits.length > 1 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      {['Feature', 'Fix', 'Security', 'Performance'].map(cat => {
+                        const count = pendingCommits.filter(c => (c.category || '').toLowerCase() === cat.toLowerCase()).length
+                        if (count === 0) return null
+                        const style = getCategoryStyle(cat)
+                        return (
+                          <span
+                            key={cat}
+                            style={{
+                              fontSize: '0.7rem',
+                              padding: '2px 7px',
+                              borderRadius: '10px',
+                              background: style.bg,
+                              color: style.color,
+                              border: `1px solid ${style.border}`,
+                              fontWeight: '600',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <span>{style.icon}</span>
+                            <span>{count} {cat}{count > 1 ? 's' : ''}</span>
+                          </span>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {pendingCommits.length > 0 ? (
@@ -226,58 +288,130 @@ export default function UpdateModal({
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '8px',
-                    maxHeight: '260px',
+                    maxHeight: '300px',
                     overflowY: 'auto',
                     paddingRight: '4px'
                   }}>
-                    {pendingCommits.map((c, idx) => (
-                      <div
-                        key={c.hash || idx}
-                        style={{
-                          background: 'rgba(255, 255, 255, 0.03)',
-                          border: '1px solid rgba(255, 255, 255, 0.06)',
-                          borderRadius: '8px',
-                          padding: '10px 14px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '4px'
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{
-                              fontFamily: 'monospace',
-                              fontSize: '0.74rem',
-                              background: 'rgba(139, 92, 246, 0.2)',
-                              color: '#c4b5fd',
-                              border: '1px solid rgba(139, 92, 246, 0.3)',
-                              padding: '1px 6px',
-                              borderRadius: '4px'
-                            }}>
-                              #{c.hash}
-                            </span>
-                            <span style={{ fontSize: '0.84rem', fontWeight: '500', color: '#fff' }}>
-                              {c.message}
-                            </span>
-                          </div>
-                        </div>
+                    {pendingCommits.map((c, idx) => {
+                      const isExpanded = !!expandedCommits[c.hash || idx]
+                      const catStyle = getCategoryStyle(c.category)
+                      const hasBody = !!c.body && c.body.trim().length > 0
 
-                        {(c.author || c.date) && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                            {c.author && (
-                              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <User size={11} /> {c.author}
+                      return (
+                        <div
+                          key={c.hash || idx}
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.03)',
+                            border: '1px solid rgba(255, 255, 255, 0.07)',
+                            borderRadius: '8px',
+                            padding: '10px 14px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px',
+                            transition: 'background 0.15s ease'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', flex: 1 }}>
+                              {/* Category Badge */}
+                              <span style={{
+                                fontSize: '0.68rem',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                background: catStyle.bg,
+                                color: catStyle.color,
+                                border: `1px solid ${catStyle.border}`,
+                                fontWeight: '700',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.4px',
+                                flexShrink: 0,
+                                marginTop: '1px'
+                              }}>
+                                {catStyle.label}
                               </span>
-                            )}
-                            {c.date && (
-                              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <Clock size={11} /> {c.date}
+
+                              {/* Hash */}
+                              <span style={{
+                                fontFamily: 'monospace',
+                                fontSize: '0.74rem',
+                                background: 'rgba(139, 92, 246, 0.15)',
+                                color: '#c4b5fd',
+                                border: '1px solid rgba(139, 92, 246, 0.25)',
+                                padding: '1px 5px',
+                                borderRadius: '4px',
+                                flexShrink: 0,
+                                marginTop: '1px'
+                              }}>
+                                #{c.hash}
                               </span>
+
+                              {/* Message */}
+                              <span style={{ fontSize: '0.84rem', fontWeight: '500', color: '#fff', lineHeight: 1.4 }}>
+                                {c.message}
+                              </span>
+                            </div>
+
+                            {/* Expand Body Button if body exists */}
+                            {hasBody && (
+                              <button
+                                type="button"
+                                onClick={() => toggleExpandCommit(c.hash || idx)}
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: isExpanded ? '#a78bfa' : 'var(--text-muted)',
+                                  cursor: 'pointer',
+                                  padding: '2px 4px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '2px',
+                                  fontSize: '0.72rem',
+                                  flexShrink: 0
+                                }}
+                                title={isExpanded ? 'Collapse commit details' : 'Expand commit details'}
+                              >
+                                <span>{isExpanded ? 'Less' : 'Details'}</span>
+                                {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                              </button>
                             )}
                           </div>
-                        )}
-                      </div>
-                    ))}
+
+                          {/* Expanded Commit Body / Details */}
+                          {hasBody && isExpanded && (
+                            <div style={{
+                              marginTop: '4px',
+                              padding: '8px 12px',
+                              background: 'rgba(0, 0, 0, 0.35)',
+                              border: '1px solid rgba(255, 255, 255, 0.08)',
+                              borderRadius: '6px',
+                              fontSize: '0.78rem',
+                              color: '#cbd5e1',
+                              lineHeight: 1.5,
+                              whiteSpace: 'pre-wrap',
+                              fontFamily: 'monospace'
+                            }}>
+                              {c.body}
+                            </div>
+                          )}
+
+                          {/* Author & Timestamp */}
+                          {(c.author || c.date) && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              {c.author && (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <User size={11} /> {c.author}
+                                </span>
+                              )}
+                              {c.date && (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <Clock size={11} /> {c.date}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 ) : (
                   <div style={{

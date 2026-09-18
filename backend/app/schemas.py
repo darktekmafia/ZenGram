@@ -185,8 +185,10 @@ class SystemHardwareResponse(BaseModel):
 class CommitSummary(BaseModel):
     hash: str
     message: str
+    body: Optional[str] = None
     author: Optional[str] = None
     date: Optional[str] = None
+    category: Optional[str] = "Update"
 
 class VersionInfoResponse(BaseModel):
     version: str
@@ -213,4 +215,16 @@ class UpdateStatusResponse(BaseModel):
     error: Optional[str] = None
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
+
+class BackupFileInfo(BaseModel):
+    filename: str
+    size_bytes: int
+    size_formatted: str
+    created_at: str
+    created_at_relative: Optional[str] = None
+
+class BackupListResponse(BaseModel):
+    backups: List[BackupFileInfo]
+    total_count: int
+    total_size_formatted: str
 
