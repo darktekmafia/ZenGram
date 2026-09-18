@@ -38,8 +38,20 @@ async def sync_followed_accounts(db: AsyncSession = Depends(get_db)):
     cookie = session.session_cookie if session else None
     username = session.username if session else "admin"
 
+    if not cookie or cookie == "dummy_session_cookie":
+        raise HTTPException(
+            status_code=400,
+            detail="No active Instagram session cookie found. Please save a valid sessionid in Settings first."
+        )
+
     scraper = InstagramScraperEngine(session_cookie=cookie)
     followed_list = await scraper.get_followed_accounts(username)
+
+    if not followed_list:
+        raise HTTPException(
+            status_code=400,
+            detail="Instagram returned 0 followed accounts. Your sessionid cookie may be expired, invalid, or requires re-login. Please test and re-save your cookie in Settings."
+        )
 
     imported_profiles = []
     for item in followed_list:

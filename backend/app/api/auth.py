@@ -262,6 +262,64 @@ async def create_session(data: UserSessionCreate, db: AsyncSession = Depends(get
     return new_session
 
 
+@router.post("/session/test")
+async def test_instagram_session(data: UserSessionCreate):
+    """Test if a given Instagram session cookie is valid and active with Instagram."""
+    from backend.app.services.scraper import parse_instagram_cookies
+    clean_cookie = data.session_cookie.strip().strip('"').strip("'")
+    cookies_dict = parse_instagram_cookies(clean_cookie)
+    if not cookies_dict and not clean_cookie:
+        raise HTTPException(status_code=400, detail="Empty session cookie provided.")
+
+    cookie_parts = [f"{k}={v}" for k, v in cookies_dict.items()]
+    if "sessionid" in cookies_dict and not any(k == "sessionid" for k in cookies_dict):
+        cookie_parts.append(f"sessionid={cookies_dict['sessionid']}")
+    cookie_header = "; ".join(cookie_parts) if cookie_parts else f"sessionid={clean_cookie};"
+    if "sessionid=" not in cookie_header:
+        cookie_header = f"sessionid={clean_cookie}; {cookie_header}"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.5",
+        "X-IG-App-ID": "936619743392459",
+        "X-Requested-With": "XMLHttpRequest",
+        "Cookie": cookie_header,
+        "Referer": "https://www.instagram.com/"
+    }
+
+    url = "https://www.instagram.com/api/v1/accounts/current_user/?edit=true"
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
+        try:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                data_resp = resp.json()
+                user_info = data_resp.get("user", {})
+                return {
+                    "is_valid": True,
+                    "username": user_info.get("username"),
+                    "pk": str(user_info.get("pk")),
+                    "full_name": user_info.get("full_name"),
+                    "profile_pic_url": user_info.get("profile_pic_url"),
+                    "message": f"Successfully verified Instagram session for @{user_info.get('username', 'user')}!"
+                }
+            elif resp.status_code in [302, 401, 403]:
+                return {
+                    "is_valid": False,
+                    "message": "Instagram rejected this session cookie (cookie is expired or invalid)."
+                }
+            else:
+                return {
+                    "is_valid": False,
+                    "message": f"Instagram returned HTTP {resp.status_code}."
+                }
+        except Exception as e:
+            return {
+                "is_valid": False,
+                "message": f"Connection error verifying with Instagram: {str(e)}"
+            }
+
+
 # Global state for interactive browser login
 interactive_login_state: Dict[str, Any] = {
     "is_running": False,

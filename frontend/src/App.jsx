@@ -27,6 +27,8 @@ export default function App() {
   const [sessionInput, setSessionInput] = useState('')
   const [showSessionKey, setShowSessionKey] = useState(false)
   const [sessionSaveStatus, setSessionSaveStatus] = useState(null)
+  const [sessionTesting, setSessionTesting] = useState(false)
+  const [sessionTestResult, setSessionTestResult] = useState(null)
   const [configSaveStatus, setConfigSaveStatus] = useState(null)
   const [downloadDirInput, setDownloadDirInput] = useState('~/Downloads/ZenGram')
   const [rateLimitDelayInput, setRateLimitDelayInput] = useState(3.0)
@@ -539,12 +541,19 @@ export default function App() {
     try {
       const res = await fetch('/api/v1/profiles/sync-following', { method: 'POST' })
       if (res.ok) {
+        const data = await res.json()
         await fetchProfiles()
+        alert(`Successfully synced ${data.length} followed accounts from Instagram!`)
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.detail || 'Failed to sync followed accounts from Instagram.')
       }
     } catch (err) {
       console.error('Error syncing followed accounts:', err)
+      alert('Network error while syncing followed accounts.')
+    } finally {
+      setSyncingFollowed(false)
     }
-    setSyncingFollowed(false)
   }
 
   const handleSaveMedia = async (postId) => {
@@ -636,8 +645,9 @@ export default function App() {
   }
 
   const handleSaveSession = async (e) => {
-    e.preventDefault()
+    if (e) e.preventDefault()
     setSessionSaveStatus('saving')
+    setSessionTestResult(null)
     try {
       const res = await fetch('/api/v1/auth/session', {
         method: 'POST',
@@ -650,13 +660,52 @@ export default function App() {
       if (res.ok) {
         await fetchUserSession()
         setSessionSaveStatus('success')
-        setTimeout(() => setSessionSaveStatus(null), 4000)
+        
+        // Auto-test with Instagram
+        try {
+          const testRes = await fetch('/api/v1/auth/session/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              username: userSession?.username || 'admin',
+              session_cookie: sessionInput
+            })
+          })
+          if (testRes.ok) {
+            const testData = await testRes.json()
+            setSessionTestResult(testData)
+          }
+        } catch (testErr) {
+          console.error('Error auto-testing session:', testErr)
+        }
+        setTimeout(() => setSessionSaveStatus(null), 6000)
       } else {
         setSessionSaveStatus('error')
       }
     } catch (err) {
       console.error('Error saving session cookie:', err)
       setSessionSaveStatus('error')
+    }
+  }
+
+  const handleTestSession = async () => {
+    setSessionTesting(true)
+    setSessionTestResult(null)
+    try {
+      const res = await fetch('/api/v1/auth/session/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: userSession?.username || 'admin',
+          session_cookie: sessionInput
+        })
+      })
+      const data = await res.json()
+      setSessionTestResult(data)
+    } catch (err) {
+      setSessionTestResult({ is_valid: false, message: 'Network error communicating with ZenGram server.' })
+    } finally {
+      setSessionTesting(false)
     }
   }
 
@@ -2171,13 +2220,23 @@ export default function App() {
                         </p>
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '16px' }}>
-                        <button type="submit" className="btn-primary" disabled={sessionSaveStatus === 'saving'}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '16px', flexWrap: 'wrap' }}>
+                        <button type="submit" className="btn-primary" disabled={sessionSaveStatus === 'saving' || sessionTesting}>
                           {sessionSaveStatus === 'saving' ? 'Saving...' : 'Save Session Cookie'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={handleTestSession}
+                          disabled={!sessionInput || sessionTesting || sessionSaveStatus === 'saving'}
+                          title="Verify if this session cookie is currently valid and active with Instagram."
+                        >
+                          <RefreshCw size={14} className={sessionTesting ? 'animate-spin' : ''} />
+                          <span>{sessionTesting ? 'Testing Connection...' : 'Test Connection'}</span>
                         </button>
                         {sessionSaveStatus === 'success' && (
                           <span style={{ color: '#10b981', fontSize: '0.84rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <CheckCircle2 size={16} /> Session cookie saved successfully!
+                            <CheckCircle2 size={16} /> Session saved!
                           </span>
                         )}
                         {sessionSaveStatus === 'error' && (
@@ -2186,6 +2245,24 @@ export default function App() {
                           </span>
                         )}
                       </div>
+
+                      {sessionTestResult && (
+                        <div style={{
+                          marginTop: '14px',
+                          padding: '10px 14px',
+                          borderRadius: '8px',
+                          background: sessionTestResult.is_valid ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                          border: `1px solid ${sessionTestResult.is_valid ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                          color: sessionTestResult.is_valid ? '#34d399' : '#f87171',
+                          fontSize: '0.84rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px'
+                        }}>
+                          {sessionTestResult.is_valid ? <CheckCircle2 size={16} style={{ flexShrink: 0 }} /> : <AlertCircle size={16} style={{ flexShrink: 0 }} />}
+                          <span>{sessionTestResult.message}</span>
+                        </div>
+                      )}
                     </form>
                   </div>
                 )}
