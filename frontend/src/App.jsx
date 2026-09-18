@@ -7,6 +7,7 @@ import ConsoleModal from './components/ConsoleModal'
 import BatchConfigModal from './components/BatchConfigModal'
 import UpdateModal from './components/UpdateModal'
 import UpdateConsoleModal from './components/UpdateConsoleModal'
+import PaginationBar from './components/PaginationBar'
 import DevToolsGuideModal from './components/DevToolsGuideModal'
 import LoginScreen from './components/LoginScreen'
 import ProfileAvatar from './components/ProfileAvatar'
@@ -61,19 +62,34 @@ export default function App() {
   const [displayInfo, setDisplayInfo] = useState(null)
   const [showResourceGuide, setShowResourceGuide] = useState(false)
 
-  // Pagination & Infinite Scroll State
+  // Pagination & Display Mode State
+  const [paginationMode, setPaginationMode] = useState('infinite') // 'infinite' | 'pages'
+  const [pageSize, setPageSize] = useState(36)
+  const [paginationModeInput, setPaginationModeInput] = useState('infinite')
+  const [pageSizeInput, setPageSizeInput] = useState(36)
+
   const [feedPage, setFeedPage] = useState(1)
   const [feedTotal, setFeedTotal] = useState(0)
+  const [feedTotalPages, setFeedTotalPages] = useState(1)
   const [feedHasMore, setFeedHasMore] = useState(false)
   const [feedLoadingMore, setFeedLoadingMore] = useState(false)
 
   const [downloadsPage, setDownloadsPage] = useState(1)
   const [downloadsTotal, setDownloadsTotal] = useState(0)
+  const [downloadsTotalPages, setDownloadsTotalPages] = useState(1)
   const [downloadsHasMore, setDownloadsHasMore] = useState(false)
   const [downloadsLoadingMore, setDownloadsLoadingMore] = useState(false)
 
   const feedSentinelRef = React.useRef(null)
   const downloadsSentinelRef = React.useRef(null)
+  const contentBodyRef = React.useRef(null)
+
+  const scrollToContentTop = (behavior = 'smooth') => {
+    if (contentBodyRef.current) {
+      contentBodyRef.current.scrollTo({ top: 0, behavior })
+    }
+    window.scrollTo({ top: 0, behavior })
+  }
   
   // Master Authentication & Security State
   const [authStatus, setAuthStatus] = useState(null)
@@ -139,12 +155,13 @@ export default function App() {
   }
 
   // Fetch Feed Media (supports pagination and appending next page chunk)
-  const fetchFeed = async (page = 1, append = false) => {
+  const fetchFeed = async (page = 1, append = false, customPageSize = null) => {
     try {
       if (append) {
         setFeedLoadingMore(true)
       }
-      let url = `/api/v1/feed?page=${page}&page_size=36&content_type=${contentType}`
+      const activePageSize = customPageSize || pageSize
+      let url = `/api/v1/feed?page=${page}&page_size=${activePageSize}&content_type=${contentType}`
       if (selectedUserFilter) {
         url += `&filter_user=${encodeURIComponent(selectedUserFilter)}`
       }
@@ -155,7 +172,7 @@ export default function App() {
       if (res.ok) {
         const data = await res.json()
         const items = data.items || (Array.isArray(data) ? data : [])
-        if (append) {
+        if (append && paginationMode === 'infinite') {
           setMediaItems((prev) => {
             const existingIds = new Set(prev.map((i) => i.id || i.post_id))
             const newUnique = items.filter((i) => !existingIds.has(i.id || i.post_id))
@@ -163,9 +180,14 @@ export default function App() {
           })
         } else {
           setMediaItems(items)
+          if (paginationMode === 'pages') {
+            scrollToContentTop('smooth')
+          }
         }
         setFeedPage(data.page || page)
         setFeedTotal(data.total_items ?? items.length)
+        const calcTotalPages = data.total_pages || Math.ceil((data.total_items ?? items.length) / activePageSize) || 1
+        setFeedTotalPages(calcTotalPages)
         setFeedHasMore(data.has_next ?? false)
       }
     } catch (err) {
@@ -178,12 +200,13 @@ export default function App() {
   }
 
   // Fetch Downloaded Content (supports pagination and appending next page chunk)
-  const fetchDownloadedContent = async (page = 1, append = false) => {
+  const fetchDownloadedContent = async (page = 1, append = false, customPageSize = null) => {
     try {
       if (append) {
         setDownloadsLoadingMore(true)
       }
-      let url = `/api/v1/downloads?page=${page}&page_size=36&content_type=${contentType}`
+      const activePageSize = customPageSize || pageSize
+      let url = `/api/v1/downloads?page=${page}&page_size=${activePageSize}&content_type=${contentType}`
       if (selectedUserFilter) {
         url += `&filter_user=${encodeURIComponent(selectedUserFilter)}`
       }
@@ -194,7 +217,7 @@ export default function App() {
       if (res.ok) {
         const data = await res.json()
         const items = data.items || (Array.isArray(data) ? data : [])
-        if (append) {
+        if (append && paginationMode === 'infinite') {
           setDownloadedItems((prev) => {
             const existingIds = new Set(prev.map((i) => i.id || i.post_id))
             const newUnique = items.filter((i) => !existingIds.has(i.id || i.post_id))
@@ -202,9 +225,14 @@ export default function App() {
           })
         } else {
           setDownloadedItems(items)
+          if (paginationMode === 'pages') {
+            scrollToContentTop('smooth')
+          }
         }
         setDownloadsPage(data.page || page)
         setDownloadsTotal(data.total_items ?? items.length)
+        const calcTotalPages = data.total_pages || Math.ceil((data.total_items ?? items.length) / activePageSize) || 1
+        setDownloadsTotalPages(calcTotalPages)
         setDownloadsHasMore(data.has_next ?? false)
       }
     } catch (err) {
@@ -275,6 +303,14 @@ export default function App() {
         if (data.max_posts_per_fetch !== undefined) setMaxPostsInput(data.max_posts_per_fetch)
         if (data.max_queue_limit !== undefined) setMaxQueueLimitInput(data.max_queue_limit)
         if (data.max_download_workers !== undefined) setMaxWorkersInput(data.max_download_workers)
+        if (data.pagination_mode) {
+          setPaginationMode(data.pagination_mode)
+          setPaginationModeInput(data.pagination_mode)
+        }
+        if (data.page_size) {
+          setPageSize(data.page_size)
+          setPageSizeInput(data.page_size)
+        }
       }
     } catch (err) {
       console.error('Error fetching app settings:', err)
@@ -406,7 +442,7 @@ export default function App() {
 
   // Infinite Scroll Observer for Dashboard Feed
   useEffect(() => {
-    if (activeTab !== 'dashboard' || !feedHasMore || feedLoadingMore) return
+    if (activeTab !== 'dashboard' || paginationMode !== 'infinite' || !feedHasMore || feedLoadingMore) return
     const observer = new IntersectionObserver((entries) => {
       if (entries[0].isIntersecting) {
         fetchFeed(feedPage + 1, true)
@@ -416,11 +452,11 @@ export default function App() {
       observer.observe(feedSentinelRef.current)
     }
     return () => observer.disconnect()
-  }, [activeTab, feedHasMore, feedLoadingMore, feedPage, contentType, selectedUserFilter, searchQuery])
+  }, [activeTab, paginationMode, feedHasMore, feedLoadingMore, feedPage, contentType, selectedUserFilter, searchQuery, pageSize])
 
   // Infinite Scroll Observer for Downloaded Content
   useEffect(() => {
-    if (activeTab !== 'downloads' || !downloadsHasMore || downloadsLoadingMore) return
+    if (activeTab !== 'downloads' || paginationMode !== 'infinite' || !downloadsHasMore || downloadsLoadingMore) return
     const observer = new IntersectionObserver((entries) => {
       if (entries[0].isIntersecting) {
         fetchDownloadedContent(downloadsPage + 1, true)
@@ -430,7 +466,7 @@ export default function App() {
       observer.observe(downloadsSentinelRef.current)
     }
     return () => observer.disconnect()
-  }, [activeTab, downloadsHasMore, downloadsLoadingMore, downloadsPage, contentType, selectedUserFilter, searchQuery])
+  }, [activeTab, paginationMode, downloadsHasMore, downloadsLoadingMore, downloadsPage, contentType, selectedUserFilter, searchQuery, pageSize])
 
   const handleLogout = async () => {
     try {
@@ -858,6 +894,7 @@ export default function App() {
     e.preventDefault()
     setConfigSaveStatus('saving')
     try {
+      const newPageSize = parseInt(pageSizeInput, 10) || 36
       const res = await fetch('/api/v1/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -867,11 +904,17 @@ export default function App() {
           rate_limit_delay_seconds: parseFloat(rateLimitDelayInput) || 3.0,
           max_posts_per_fetch: parseInt(maxPostsInput) >= 0 ? parseInt(maxPostsInput) : 0,
           max_queue_limit: parseInt(maxQueueLimitInput) >= 1 ? parseInt(maxQueueLimitInput) : 8,
-          max_download_workers: parseInt(maxWorkersInput) >= 1 ? parseInt(maxWorkersInput) : 2
+          max_download_workers: parseInt(maxWorkersInput) >= 1 ? parseInt(maxWorkersInput) : 2,
+          pagination_mode: paginationModeInput,
+          page_size: newPageSize
         })
       })
       if (res.ok) {
+        setPaginationMode(paginationModeInput)
+        setPageSize(newPageSize)
         setConfigSaveStatus('success')
+        fetchFeed(1, false, newPageSize)
+        fetchDownloadedContent(1, false, newPageSize)
         setTimeout(() => setConfigSaveStatus(null), 4000)
       } else {
         setConfigSaveStatus('error')
@@ -1027,6 +1070,15 @@ export default function App() {
     )
   }
 
+  const handleTogglePaginationMode = (mode) => {
+    setPaginationMode(mode)
+    setPaginationModeInput(mode)
+    if (mode === 'pages') {
+      fetchFeed(1, false)
+      fetchDownloadedContent(1, false)
+    }
+  }
+
   return (
     <div className="app-container">
       <Sidebar
@@ -1065,9 +1117,11 @@ export default function App() {
           systemVersion={systemVersion}
           onOpenUpdateModal={() => setIsUpdateModalOpen(true)}
           onNavigateToSettings={navigateToSettingsSection}
+          paginationMode={paginationMode}
+          onTogglePaginationMode={handleTogglePaginationMode}
         />
 
-        <div className="content-body">
+        <div className="content-body" ref={contentBodyRef}>
           {/* Active Background Feed Crawler Banner */}
           {crawlerStatus?.is_running && activeTab === 'dashboard' && (
             <div style={{
@@ -1195,28 +1249,46 @@ export default function App() {
                   ))}
                 </div>
 
-                {/* Infinite Scroll Sentinel & Load More Controls */}
-                {feedHasMore && (
-                  <div className="pagination-load-more-container">
-                    <div ref={feedSentinelRef} style={{ height: '10px', width: '100%' }} />
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      style={{ padding: '8px 20px', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
-                      onClick={() => fetchFeed(feedPage + 1, true)}
-                      disabled={feedLoadingMore}
-                    >
-                      {feedLoadingMore ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                      <span>{feedLoadingMore ? 'Loading More Posts...' : `Load More Posts (${mediaItems.length} of ${feedTotal.toLocaleString()})`}</span>
-                    </button>
-                  </div>
-                )}
+                {/* Pagination Controls */}
+                {paginationMode === 'pages' ? (
+                  <PaginationBar
+                    currentPage={feedPage}
+                    totalPages={feedTotalPages}
+                    totalItems={feedTotal}
+                    pageSize={pageSize}
+                    onPageChange={(p) => fetchFeed(p, false)}
+                    onPageSizeChange={(sz) => {
+                      setPageSize(sz)
+                      setPageSizeInput(sz)
+                      fetchFeed(1, false, sz)
+                    }}
+                    loading={feedLoadingMore}
+                  />
+                ) : (
+                  <>
+                    {feedHasMore && (
+                      <div className="pagination-load-more-container">
+                        <div ref={feedSentinelRef} style={{ height: '10px', width: '100%' }} />
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ padding: '8px 20px', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                          onClick={() => fetchFeed(feedPage + 1, true)}
+                          disabled={feedLoadingMore}
+                        >
+                          {feedLoadingMore ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                          <span>{feedLoadingMore ? 'Loading More Posts...' : `Load More Posts (${mediaItems.length} of ${feedTotal.toLocaleString()})`}</span>
+                        </button>
+                      </div>
+                    )}
 
-                {!feedHasMore && mediaItems.length > 0 && (
-                  <div className="pagination-end-badge">
-                    <CheckCircle2 size={14} style={{ color: '#10b981' }} />
-                    <span>You've reached the end of your feed ({feedTotal.toLocaleString()} posts)</span>
-                  </div>
+                    {!feedHasMore && mediaItems.length > 0 && (
+                      <div className="pagination-end-badge">
+                        <CheckCircle2 size={14} style={{ color: '#10b981' }} />
+                        <span>You've reached the end of your feed ({feedTotal.toLocaleString()} posts)</span>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             ) : (
@@ -1359,28 +1431,46 @@ export default function App() {
                     ))}
                   </div>
 
-                  {/* Infinite Scroll Sentinel & Load More Controls */}
-                  {downloadsHasMore && (
-                    <div className="pagination-load-more-container">
-                      <div ref={downloadsSentinelRef} style={{ height: '10px', width: '100%' }} />
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        style={{ padding: '8px 20px', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
-                        onClick={() => fetchDownloadedContent(downloadsPage + 1, true)}
-                        disabled={downloadsLoadingMore}
-                      >
-                        {downloadsLoadingMore ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                        <span>{downloadsLoadingMore ? 'Loading More Saved Posts...' : `Load More Downloads (${downloadedItems.length} of ${downloadsTotal.toLocaleString()})`}</span>
-                      </button>
-                    </div>
-                  )}
+                  {/* Pagination Controls */}
+                  {paginationMode === 'pages' ? (
+                    <PaginationBar
+                      currentPage={downloadsPage}
+                      totalPages={downloadsTotalPages}
+                      totalItems={downloadsTotal}
+                      pageSize={pageSize}
+                      onPageChange={(p) => fetchDownloadedContent(p, false)}
+                      onPageSizeChange={(sz) => {
+                        setPageSize(sz)
+                        setPageSizeInput(sz)
+                        fetchDownloadedContent(1, false, sz)
+                      }}
+                      loading={downloadsLoadingMore}
+                    />
+                  ) : (
+                    <>
+                      {downloadsHasMore && (
+                        <div className="pagination-load-more-container">
+                          <div ref={downloadsSentinelRef} style={{ height: '10px', width: '100%' }} />
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            style={{ padding: '8px 20px', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                            onClick={() => fetchDownloadedContent(downloadsPage + 1, true)}
+                            disabled={downloadsLoadingMore}
+                          >
+                            {downloadsLoadingMore ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                            <span>{downloadsLoadingMore ? 'Loading More Saved Posts...' : `Load More Downloads (${downloadedItems.length} of ${downloadsTotal.toLocaleString()})`}</span>
+                          </button>
+                        </div>
+                      )}
 
-                  {!downloadsHasMore && downloadedItems.length > 0 && (
-                    <div className="pagination-end-badge">
-                      <CheckCircle2 size={14} style={{ color: '#10b981' }} />
-                      <span>All {downloadsTotal.toLocaleString()} saved posts loaded</span>
-                    </div>
+                      {!downloadsHasMore && downloadedItems.length > 0 && (
+                        <div className="pagination-end-badge">
+                          <CheckCircle2 size={14} style={{ color: '#10b981' }} />
+                          <span>All {downloadsTotal.toLocaleString()} saved posts loaded</span>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -2664,6 +2754,42 @@ export default function App() {
                               <span style={{ color: '#f87171', fontWeight: 600 }}>⚠️ High CPU & I/O. May freeze low-spec systems.</span>
                             )}
                           </p>
+                        </div>
+
+                        <div className="settings-form-group">
+                          <label className="settings-label">Feed Pagination Mode</label>
+                          <select
+                            className="select-dropdown"
+                            style={{ width: '100%', height: '42px' }}
+                            value={paginationModeInput}
+                            onChange={(e) => setPaginationModeInput(e.target.value)}
+                          >
+                            <option value="infinite">⚡ Continuous Infinite Scroll</option>
+                            <option value="pages">📄 Classic Numbered Pages</option>
+                          </select>
+                          <p className="settings-description">
+                            {paginationModeInput === 'pages' ? (
+                              <span style={{ color: '#34d399' }}>🟢 Numbered pages conserve browser memory across thousands of posts.</span>
+                            ) : (
+                              '⚡ Auto-loads new posts automatically as you scroll down.'
+                            )}
+                          </p>
+                        </div>
+
+                        <div className="settings-form-group">
+                          <label className="settings-label">Default Posts Per Page</label>
+                          <select
+                            className="select-dropdown"
+                            style={{ width: '100%', height: '42px' }}
+                            value={pageSizeInput}
+                            onChange={(e) => setPageSizeInput(parseInt(e.target.value, 10))}
+                          >
+                            <option value="24">24 Posts Per Page</option>
+                            <option value="36">36 Posts Per Page (Recommended)</option>
+                            <option value="48">48 Posts Per Page</option>
+                            <option value="96">96 Posts Per Page</option>
+                          </select>
+                          <p className="settings-description">Number of post cards rendered in each page slice.</p>
                         </div>
                       </div>
 

@@ -1,5 +1,5 @@
 import React from 'react'
-import { CheckCircle2, RefreshCw, Search, PlusCircle, Activity } from 'lucide-react'
+import { CheckCircle2, RefreshCw, Search, PlusCircle, Activity, Zap, FileText } from 'lucide-react'
 
 export default function Header({
   activeTab,
@@ -13,7 +13,9 @@ export default function Header({
   syncing,
   crawlerStatus,
   systemVersion,
-  onOpenUpdateModal
+  onOpenUpdateModal,
+  paginationMode = 'infinite',
+  onTogglePaginationMode
 }) {
   const getHeaderInfo = () => {
     switch (activeTab) {
@@ -105,6 +107,64 @@ export default function Header({
 
         {showMediaControls && (
           <div className="controls-right">
+            {/* Quick Pagination Mode Toggle */}
+            <div style={{
+              display: 'inline-flex',
+              background: 'rgba(0, 0, 0, 0.35)',
+              padding: '3px',
+              borderRadius: '8px',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              gap: '2px'
+            }}>
+              <button
+                type="button"
+                onClick={() => onTogglePaginationMode && onTogglePaginationMode('infinite')}
+                style={{
+                  background: paginationMode === 'infinite' ? 'linear-gradient(135deg, #3b82f6, #8b5cf6)' : 'transparent',
+                  border: 'none',
+                  color: paginationMode === 'infinite' ? '#fff' : 'var(--text-muted)',
+                  borderRadius: '6px',
+                  padding: '4px 10px',
+                  fontSize: '0.78rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  boxShadow: paginationMode === 'infinite' ? '0 0 10px rgba(139, 92, 246, 0.4)' : 'none',
+                  transition: 'all 0.2s'
+                }}
+                title="Continuous Infinite Scroll (Auto-loads posts as you scroll)"
+              >
+                <Zap size={13} />
+                <span>Infinite</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onTogglePaginationMode && onTogglePaginationMode('pages')}
+                style={{
+                  background: paginationMode === 'pages' ? 'linear-gradient(135deg, #3b82f6, #8b5cf6)' : 'transparent',
+                  border: 'none',
+                  color: paginationMode === 'pages' ? '#fff' : 'var(--text-muted)',
+                  borderRadius: '6px',
+                  padding: '4px 10px',
+                  fontSize: '0.78rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  boxShadow: paginationMode === 'pages' ? '0 0 10px rgba(139, 92, 246, 0.4)' : 'none',
+                  transition: 'all 0.2s'
+                }}
+                title="Numbered Page Navigation (Conserves RAM on large collections)"
+              >
+                <FileText size={13} />
+                <span>Pages</span>
+              </button>
+            </div>
+
             <div className="search-box">
               <Search size={16} className="search-icon" />
               <input
@@ -127,6 +187,7 @@ export default function Header({
               <option value="CAROUSEL">Carousels Only</option>
               <option value="STORY">Stories Only</option>
             </select>
+
 
             {activeTab === 'dashboard' && (
               <>

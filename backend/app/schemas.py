@@ -129,6 +129,8 @@ class AppSettingsSchema(BaseModel):
     max_posts_per_fetch: int = 50
     max_queue_limit: int = 8
     max_download_workers: int = 2
+    pagination_mode: str = "infinite"
+    page_size: int = 36
 
     model_config = ConfigDict(from_attributes=True)
 

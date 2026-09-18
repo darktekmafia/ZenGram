@@ -110,3 +110,5 @@ class AppSettings(Base):
     max_posts_per_fetch: Mapped[int] = mapped_column(Integer, default=50)
     max_queue_limit: Mapped[int] = mapped_column(Integer, default=8)
     max_download_workers: Mapped[int] = mapped_column(Integer, default=2)
+    pagination_mode: Mapped[str] = mapped_column(Text, default="infinite")
+    page_size: Mapped[int] = mapped_column(Integer, default=36)

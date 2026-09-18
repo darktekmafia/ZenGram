@@ -64,6 +64,17 @@ async def init_db():
         except Exception:
             pass
 
+        # Auto-add new settings columns if upgrading existing installation
+        try:
+            await conn.execute(text("ALTER TABLE app_settings ADD COLUMN pagination_mode TEXT DEFAULT 'infinite';"))
+        except Exception:
+            pass
+        try:
+            await conn.execute(text("ALTER TABLE app_settings ADD COLUMN page_size INTEGER DEFAULT 36;"))
+        except Exception:
+            pass
+
+
         # Migrate any legacy plaintext session cookies to AES-256 encrypted ciphertext (Fail-Closed & Atomic)
         from backend.app.auth_utils import encrypt_secret, decrypt_secret
         try:
