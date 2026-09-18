@@ -79,10 +79,12 @@ from fastapi import Response, Query, HTTPException
 
 @app.get("/api/v1/proxy/image")
 async def proxy_image(url: str = Query(...)):
+    import html
+    clean_url = html.unescape(url).replace("&amp;", "&").strip()
     async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
         try:
-            res = await client.get(url, headers={
-                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+            res = await client.get(clean_url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
                 "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
             })
             if res.status_code == 200:

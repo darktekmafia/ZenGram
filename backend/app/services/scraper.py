@@ -228,7 +228,8 @@ class InstagramScraperEngine:
                 try:
                     og_img = await page.get_attribute('meta[property="og:image"]', 'content')
                     if og_img and ('fbcdn' in og_img or 'instagram' in og_img) and not og_img.endswith('.mp4'):
-                        profile_pic = og_img
+                        import html
+                        profile_pic = html.unescape(og_img).replace('&amp;', '&').strip()
                 except Exception:
                     pass
 
@@ -603,7 +604,8 @@ class InstagramScraperEngine:
                         await page.wait_for_timeout(500)
                         og_img = await page.get_attribute('meta[property="og:image"]', 'content')
                         if og_img and ('fbcdn' in og_img or 'instagram' in og_img) and not og_img.endswith('.mp4'):
-                            user_data['profile_pic_url'] = og_img
+                            import html
+                            user_data['profile_pic_url'] = html.unescape(og_img).replace('&amp;', '&').strip()
                     except Exception as e:
                         logger.warning(f"OG img fetch error for logged in user: {e}")
                 

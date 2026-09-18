@@ -6,11 +6,12 @@ export default function ProfileAvatar({ username, profilePicUrl, className = "pr
 
   const getTargetUrl = (url) => {
     if (!url) return fallbackAvatar
-    if (url.startsWith('http://') || url.startsWith('https://')) {
+    const clean = url.replace(/&amp;/g, '&')
+    if (clean.startsWith('http://') || clean.startsWith('https://')) {
       // Direct proxy endpoint to bypass Instagram CORS / hotlink restrictions reliably
-      return `/api/v1/proxy/image?url=${encodeURIComponent(url)}`
+      return `/api/v1/proxy/image?url=${encodeURIComponent(clean)}`
     }
-    return url
+    return clean
   }
 
   const [src, setSrc] = useState(getTargetUrl(profilePicUrl))
@@ -25,10 +26,11 @@ export default function ProfileAvatar({ username, profilePicUrl, className = "pr
     if (errorCount === 0 && profilePicUrl) {
       // If direct proxy fails or direct url failed, try fallback proxy/direct
       setErrorCount(1)
+      const clean = profilePicUrl.replace(/&amp;/g, '&')
       if (src.includes('/api/v1/proxy/image')) {
-        setSrc(profilePicUrl)
+        setSrc(clean)
       } else {
-        setSrc(`/api/v1/proxy/image?url=${encodeURIComponent(profilePicUrl)}`)
+        setSrc(`/api/v1/proxy/image?url=${encodeURIComponent(clean)}`)
       }
     } else {
       setSrc(fallbackAvatar)
