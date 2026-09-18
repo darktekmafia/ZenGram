@@ -969,7 +969,7 @@ export default function App() {
     return () => clearInterval(jobInterval)
   }, [activeTab, jobs.length])
 
-  const handleStartBatchUserDownload = async (username, limit = 0, category = null) => {
+  const handleStartBatchUserDownload = async (username, limit = 0, category = null, includeHighlights = false) => {
     const cleanUser = (username || '').trim().replace(/^@+/, '')
     if (!cleanUser) return
     setStartingBatchUser(cleanUser)
@@ -980,6 +980,9 @@ export default function App() {
       }
       if (category) {
         queryParams.set('category_tag', category)
+      }
+      if (includeHighlights) {
+        queryParams.set('include_highlights', 'true')
       }
       const queryString = queryParams.toString() ? `?${queryParams.toString()}` : ''
       const res = await fetch(`/api/v1/downloads/bulk-user/${encodeURIComponent(cleanUser)}${queryString}`, { method: 'POST' })

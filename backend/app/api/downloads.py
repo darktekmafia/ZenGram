@@ -36,6 +36,7 @@ async def run_queued_user_batch_archive(
     clean_username: str,
     target_category: str,
     limit: Optional[int],
+    include_highlights: bool,
     db_session_factory
 ):
     async with batch_job_lock:
@@ -44,6 +45,7 @@ async def run_queued_user_batch_archive(
             clean_username=clean_username,
             target_category=target_category,
             limit=limit,
+            include_highlights=include_highlights,
             db_session_factory=db_session_factory
         )
 
@@ -188,6 +190,7 @@ async def process_user_batch_archive_job(
     clean_username: str,
     target_category: str,
     limit: Optional[int],
+    include_highlights: bool,
     db_session_factory
 ):
     import asyncio
@@ -206,9 +209,10 @@ async def process_user_batch_archive_job(
                 effective_limit = limit
 
             depth_desc = "Full Profile History (Uncapped)" if effective_limit <= 0 else f"up to {effective_limit} items"
+            hl_scope = " + Story Highlights" if include_highlights else ""
             job.status = "in_progress"
             job.current_stage = f"Connecting to Instagram & fetching profile @{clean_username}..."
-            job.logs = _add_log_entry(job.logs, f"Connecting to Instagram for profile @{clean_username} ({depth_desc})...")
+            job.logs = _add_log_entry(job.logs, f"Connecting to Instagram for profile @{clean_username} ({depth_desc}{hl_scope})...")
             await db.commit()
 
             from backend.app.models import UserSession, WatchedProfile
@@ -252,17 +256,74 @@ async def process_user_batch_archive_job(
         # 2. Scrape user stories
         stories_data = await scraper.get_user_stories(clean_username, wp.ig_user_id if wp else None)
 
-        # 3. Ingest discovered items into DB
-        total_discovered = len(posts_data) + len(stories_data)
+        # 3. Scrape permanent highlights if selected
+        highlights_data = []
+        if include_highlights:
+            async with db_session_factory() as db:
+                job = await db.get(DownloadJob, job_id)
+                if job:
+                    job.current_stage = f"Checking story highlights for @{clean_username}..."
+                    job.logs = _add_log_entry(job.logs, f"Scanning permanent story highlights for @{clean_username}...")
+                    await db.commit()
+
+            try:
+                hl_albums = await scraper.get_user_highlights(clean_username, wp.ig_user_id if wp else None)
+                if hl_albums and len(hl_albums) > 0:
+                    async with db_session_factory() as db:
+                        job = await db.get(DownloadJob, job_id)
+                        if job:
+                            job.logs = _add_log_entry(job.logs, f"Found {len(hl_albums)} highlight albums for @{clean_username}. Ingesting reels...")
+                            await db.commit()
+
+                    for idx_hl, hl in enumerate(hl_albums, 1):
+                        hl_title = hl.get("title") or f"Highlight #{idx_hl}"
+                        async with db_session_factory() as db:
+                            job = await db.get(DownloadJob, job_id)
+                            if job:
+                                job.current_stage = f"Scraping highlight '{hl_title}' ({idx_hl}/{len(hl_albums)})..."
+                                job.logs = _add_log_entry(job.logs, f"Scraping highlight '{hl_title}' ({idx_hl}/{len(hl_albums)})...")
+                                await db.commit()
+
+                        try:
+                            items_in_hl = await scraper.get_highlight_media(hl["id"], clean_username)
+                            if items_in_hl:
+                                highlights_data.extend(items_in_hl)
+                                async with db_session_factory() as db:
+                                    job = await db.get(DownloadJob, job_id)
+                                    if job:
+                                        job.logs = _add_log_entry(job.logs, f"Loaded {len(items_in_hl)} story slides from '{hl_title}'")
+                                        await db.commit()
+                        except Exception as hl_item_err:
+                            logger.warning(f"Error scraping highlight album {hl.get('id')}: {hl_item_err}")
+                else:
+                    async with db_session_factory() as db:
+                        job = await db.get(DownloadJob, job_id)
+                        if job:
+                            job.logs = _add_log_entry(job.logs, f"Checked highlights for @{clean_username} (no permanent albums found). Continuing...")
+                            await db.commit()
+            except Exception as hl_err:
+                logger.warning(f"Highlights check skipped for {clean_username}: {hl_err}")
+                async with db_session_factory() as db:
+                    job = await db.get(DownloadJob, job_id)
+                    if job:
+                        job.logs = _add_log_entry(job.logs, f"Highlights scan skipped ({hl_err}). Continuing with batch archive...")
+                        await db.commit()
+
+        # 4. Ingest discovered items into DB
+        total_discovered = len(posts_data) + len(stories_data) + len(highlights_data)
         async with db_session_factory() as db:
             job = await db.get(DownloadJob, job_id)
             if job:
                 job.current_stage = f"Discovered {total_discovered} media items. Registering in database..."
-                job.logs = _add_log_entry(job.logs, f"Discovered {len(stories_data)} active stories ({total_discovered} total). Ingesting records...")
+                disc_summary = f"Discovered {len(posts_data)} posts, {len(stories_data)} active stories"
+                if include_highlights:
+                    disc_summary += f", {len(highlights_data)} highlight items"
+                disc_summary += f" ({total_discovered} total). Ingesting records..."
+                job.logs = _add_log_entry(job.logs, disc_summary)
                 await db.commit()
 
             seen_post_ids = set()
-            for item in posts_data + stories_data:
+            for item in posts_data + stories_data + highlights_data:
                 pid = str(item.get("post_id") or "").strip()
                 if not pid or pid in seen_post_ids:
                     continue
@@ -875,6 +936,7 @@ async def trigger_bulk_download_for_user(
     background_tasks: BackgroundTasks,
     category_tag: Optional[str] = Query(None),
     limit: Optional[int] = Query(None),
+    include_highlights: bool = Query(False),
     db: AsyncSession = Depends(get_db)
 ):
     from backend.app.models import AppSettings
@@ -896,12 +958,13 @@ async def trigger_bulk_download_for_user(
     target_category = category_tag.strip() if (category_tag and category_tag.strip() != "General") else clean_username
     
     depth_text = "Full Profile (Uncapped)" if (limit is not None and limit <= 0) else (f"{limit} posts" if limit else "configured depth")
+    hl_text = " + Highlights" if include_highlights else ""
     job_id = str(uuid.uuid4())[:8]
 
     is_busy = batch_job_lock.locked()
     initial_status = "queued" if is_busy else "in_progress"
-    initial_stage = f"Waiting in batch queue (another job is currently executing)..." if is_busy else f"Discovering profile and media for @{clean_username} ({depth_text})..."
-    initial_log = f"Batch archive for @{clean_username} ({depth_text}) added to queue. Position: Waiting in line..." if is_busy else f"Initiated batch archive for @{clean_username} ({depth_text})"
+    initial_stage = f"Waiting in batch queue (another job is currently executing)..." if is_busy else f"Discovering profile and media for @{clean_username} ({depth_text}{hl_text})..."
+    initial_log = f"Batch archive for @{clean_username} ({depth_text}{hl_text}) added to queue. Position: Waiting in line..." if is_busy else f"Initiated batch archive for @{clean_username} ({depth_text}{hl_text})"
 
     job = DownloadJob(
         id=job_id,
@@ -923,6 +986,7 @@ async def trigger_bulk_download_for_user(
         clean_username=clean_username,
         target_category=target_category,
         limit=limit,
+        include_highlights=include_highlights,
         db_session_factory=AsyncSessionLocal
     )
 

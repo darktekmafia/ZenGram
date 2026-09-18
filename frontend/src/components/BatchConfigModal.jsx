@@ -8,7 +8,8 @@ import {
   FolderDown,
   Info,
   CheckCircle2,
-  Clock
+  Clock,
+  Flame
 } from 'lucide-react'
 
 export default function BatchConfigModal({
@@ -19,6 +20,7 @@ export default function BatchConfigModal({
   onStartBatch
 }) {
   const [selectedDepth, setSelectedDepth] = useState(defaultLimit !== undefined ? defaultLimit : 0)
+  const [includeHighlights, setIncludeHighlights] = useState(false)
   const [customCategory, setCustomCategory] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -77,7 +79,7 @@ export default function BatchConfigModal({
     e?.preventDefault?.()
     setIsSubmitting(true)
     try {
-      await onStartBatch(cleanUser, selectedDepth, customCategory.trim() || cleanUser)
+      await onStartBatch(cleanUser, selectedDepth, customCategory.trim() || cleanUser, includeHighlights)
       onClose()
     } catch (err) {
       console.error('Failed to trigger batch archive:', err)
@@ -277,6 +279,104 @@ export default function BatchConfigModal({
                   </div>
                 )
               })}
+            </div>
+          </div>
+
+          {/* Story Highlights Toggle Card */}
+          <div style={{ marginTop: '16px' }}>
+            <label
+              style={{
+                fontSize: '0.78rem',
+                fontWeight: '700',
+                color: 'var(--text-muted)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                display: 'block',
+                marginBottom: '8px'
+              }}
+            >
+              Additional Content Scope
+            </label>
+
+            <div
+              onClick={() => setIncludeHighlights((prev) => !prev)}
+              style={{
+                padding: '12px 14px',
+                borderRadius: '12px',
+                cursor: 'pointer',
+                border: includeHighlights
+                  ? '1px solid #f43f5e'
+                  : '1px solid var(--border-color)',
+                backgroundColor: includeHighlights
+                  ? 'rgba(244, 63, 94, 0.12)'
+                  : 'var(--bg-tertiary)',
+                boxShadow: includeHighlights
+                  ? '0 4px 14px rgba(244, 63, 94, 0.2)'
+                  : 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                transition: 'all 0.15s ease-in-out'
+              }}
+            >
+              <div
+                style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: includeHighlights ? 'rgba(244, 63, 94, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                  color: '#f43f5e',
+                  flexShrink: 0
+                }}
+              >
+                <Flame size={18} />
+              </div>
+
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.9rem', fontWeight: '600', color: includeHighlights ? '#ffffff' : 'var(--text-main)' }}>
+                    Include Permanent Story Highlights
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '0.7rem',
+                      fontWeight: '600',
+                      padding: '2px 8px',
+                      borderRadius: '999px',
+                      backgroundColor: 'rgba(244, 63, 94, 0.15)',
+                      color: '#fb7185',
+                      border: '1px solid rgba(244, 63, 94, 0.35)'
+                    }}
+                  >
+                    Highlights Albums
+                  </span>
+                </div>
+                <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', margin: '3px 0 0 0', lineHeight: 1.4 }}>
+                  Scans and archives all permanent highlight story albums for @{cleanUser}. (If no highlights exist, batch safely continues without failing).
+                </p>
+              </div>
+
+              <div style={{ flexShrink: 0 }}>
+                <div
+                  style={{
+                    width: '20px',
+                    height: '20px',
+                    borderRadius: '50%',
+                    border: includeHighlights ? '1px solid #f43f5e' : '1px solid var(--border-color)',
+                    backgroundColor: includeHighlights ? '#f43f5e' : 'transparent',
+                    color: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all 0.15s ease-in-out'
+                  }}
+                >
+                  {includeHighlights && <CheckCircle2 size={13} style={{ strokeWidth: 3 }} />}
+                </div>
+              </div>
             </div>
           </div>
 
