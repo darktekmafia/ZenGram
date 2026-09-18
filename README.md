@@ -1,6 +1,6 @@
 # ZenGram - Distraction-Free Instagram Media Archiver & Feed Viewer
 
-**ZenGram** is a self-hosted Instagram feed viewer and personal media archiver designed to put you back in control of your feed. Browse followed accounts chronologically, separate high-volume accounts from your daily feed, and preserve media locally—all without advertisements, suggested posts, or algorithmic recommendations.
+**ZenGram** is a self-hosted Instagram feed viewer and personal media archiver designed to put you back in control of your feed. Browse followed accounts chronologically, separate high-volume accounts from your daily feed, and preserve media locally, all without advertisements, suggested posts, or algorithmic recommendations.
 
 ![ZenGram](assets/zengram.svg)
 
@@ -202,7 +202,7 @@ systemctl --user restart zengram.service
 
 ## 🧪 Running Security & Regression Tests
 
-ZenGram includes a comprehensive automated test suite covering 20 security boundaries—including authentication enforcement, secret redaction, SSRF/DNS rebinding defense, AES-256 encryption-at-rest, key tampering detection, and atomic database migrations.
+ZenGram includes a comprehensive automated test suite covering 20 security boundaries: authentication enforcement, secret redaction, SSRF/DNS rebinding defense, AES-256 encryption-at-rest, key tampering detection, and atomic database migrations.
 
 ### 1. 1-Click In-App Diagnostic Runner (Web UI)
 Inside the web UI under **Settings ➔ Master Security & Web Access Control**, click **"Run Security Check Now"**. ZenGram launches the test suite in the background on an isolated in-memory test database and streams real-time diagnostic output into an in-app terminal modal with milestone detection and pass/fail verification.

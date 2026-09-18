@@ -16,7 +16,7 @@ The security test suite is designed to be executed safely in any environment (lo
 
 ## 🔍 Understanding the Test Output
 
-When running `python backend/tests/test_security.py`, you will typically see the following output in your terminal:
+When running the security check, you will see the following output in the diagnostic console:
 
 ```text
 (.venv) root@ZenGram:~/ZenGram# python backend/tests/test_security.py
@@ -29,10 +29,10 @@ All security, encryption-at-rest, atomic rollback, and DNS-pinning tests passed 
 
 In robust security engineering, **negative test cases (intentional fault injection)** are essential. To prove that security defenses actually work, the test suite actively attacks the application with corrupted data, mismatched keys, and simulated system crashes:
 
-1. **First "FATAL" Message (Test #15 — Key Tampering & Fail-Closed Defense)**:
+1. **First "FATAL" Message (Test #15: Key Tampering & Fail-Closed Defense)**:
    * **What happens**: The test deliberately feeds a corrupt, mismatched encryption payload into the decryption engine.
    * **What it verifies**: It confirms that if someone replaces the encryption key, tampers with database files, or attempts a forgery attack, ZenGram **immediately fails closed** and logs a critical alert, rather than crashing silently, leaking partial plaintext, or returning invalid data.
-2. **Second "FATAL" Message (Test #17 — Atomic Migration Failure & Rollback)**:
+2. **Second "FATAL" Message (Test #17: Atomic Migration Failure & Rollback)**:
    * **What happens**: The test injects a simulated disk failure in the middle of a multi-row database migration.
    * **What it verifies**: It confirms that if a migration is interrupted or fails midway, SQLite executes an **atomic rollback** (`BEGIN ... ROLLBACK`) so no half-migrated or corrupted records remain in the database.
 
@@ -75,7 +75,14 @@ The test suite exercises 20 dedicated security boundaries:
 
 ## 🚀 How to Run the Security Test Suite
 
-### 1. Workstation / Desktop (Non-Root User)
+### 1. 1-Click In-App Diagnostic Runner (Web UI)
+
+Inside the web interface:
+1. Open **Settings ➔ Master Security & Web Access Control**.
+2. Scroll to **Security & Hardening Diagnostic Runner** and click **"Run Security Check Now"**.
+3. ZenGram will asynchronously execute all 20 test suites on a temporary in-memory database and stream real-time logs and pass/fail stage indicators directly inside the interactive diagnostic modal.
+
+### 2. Workstation / Desktop Terminal (Non-Root User)
 
 ```bash
 cd /path/to/ZenGram
@@ -83,7 +90,7 @@ source .venv/bin/activate
 python backend/tests/test_security.py
 ```
 
-### 2. Headless Server / Proxmox LXC Container (Root User)
+### 3. Headless Server / Proxmox LXC Container Terminal (Root User)
 
 ```bash
 cd /root/ZenGram
@@ -91,7 +98,7 @@ source .venv/bin/activate
 python backend/tests/test_security.py
 ```
 
-### 3. One-Liner (Without activating venv in your shell)
+### 4. Direct CLI One-Liner (Without Activating Shell Venv)
 
 ```bash
 PYTHONPATH=. .venv/bin/python backend/tests/test_security.py
