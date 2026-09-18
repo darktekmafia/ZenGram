@@ -12,6 +12,10 @@
   - Displays media exclusively from your followed accounts, sorted chronologically (**newest post first**) across all accounts using precise Instagram Snowflake timestamp decoding.
   - No algorithms, no ads, and no sponsored account injection.
   - Automatically isolates Tracked Accounts from the main feed to keep your daily dashboard uncluttered.
+- **Automated Background Feed Crawler & Periodic Scheduler**:
+  - **Full Sync on Demand**: Automatically scans recent media (posts, reels, stories) across all followed accounts in non-blocking background workers with live progress indicators.
+  - **Periodic Auto-Sync**: Background timer automatically crawls fresh posts on a configurable schedule (default: every 6 hours).
+  - **Rate-Limit Safe**: Features polite jittered request pacing and rate tracking to keep your Instagram session healthy.
 - **Dedicated Tracked Accounts Manager (Unfollowed)**:
   - Browse and archive public accounts without following them on Instagram.
   - **Bulk Import**: Import dozens of accounts simultaneously via single handle, multi-line text input (supporting spaces, commas, newlines, and URLs), or `.txt`/`.csv` file upload.
@@ -29,6 +33,9 @@
   - Real-time Task Queue tab tracking active, completed, and pending download jobs.
   - Parallel download worker controls (1 to 8 workers, configurable in Settings).
   - Live in-app terminal console to monitor scraper and downloader events in real-time.
+- **Local Disk Image Proxy & Reverse Proxy Compatibility**:
+  - Dual Base64 and query image proxying prevents CDN token truncation behind Nginx Proxy Manager / Cloudflare.
+  - Automatically caches avatar thumbnails locally on disk (`storage/cache/images/`) so images remain visible even after Instagram CDN token expiration.
 - **Real-Time System Resource Telemetry**:
   - Built-in live CPU, RAM, Swap, and Disk volume meters.
   - Automatic detection of Proxmox LXC containers, Docker, and Host environments.

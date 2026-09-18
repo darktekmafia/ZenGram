@@ -108,3 +108,9 @@ Thumbs.db
 scratch/
 project_preliminary_overview.txt
 UI_Example_Only.jpeg
+
+# Local Planning & Internal Implementation Notes
+FUTURE_IMPLEMENTATIONS.md
+*.local.md
+ROADMAP.local.md
+
