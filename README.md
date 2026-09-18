@@ -2,7 +2,7 @@
 
 **ZenGram** is a self-hosted, lightweight, and high-performance local web application designed for Linux (Fedora, Debian, Ubuntu, Proxmox LXC containers, and Arch Linux) to browse, archive, and save Instagram media (Photos, Videos, Reels, Multi-slide Carousels, and 24h Stories) with zero ads, true chronological ordering, and local storage integrity.
 
-![ZenGram](assets/instasave.svg)
+![ZenGram](assets/zengram.svg)
 
 ---
 
