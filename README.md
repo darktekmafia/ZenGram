@@ -53,6 +53,9 @@
 - **Real-Time System Resource Telemetry**:
   - Built-in live CPU, RAM, Swap, and Disk volume meters.
   - Automatic detection of Proxmox LXC containers, Docker, and Host environments.
+- **1-Click Full Database & Encryption Key Backup**:
+  - Download a complete, consistent WAL-safe snapshot of `zengram.db` bundled with your hardware-isolated encryption key (`jwt_secret.key`) in a timestamped `.zip` directly from the Settings page.
+  - Zero downtime hot snapshotting with automatic post-stream temp file cleanup.
 - **Master Security & Access Control**:
   - **Master Password Authentication**: Built-in administrator account secured with salted Bcrypt password hashing.
   - **Session Security**: Cryptographically signed JSON Web Tokens (JWT) stored in secure `HttpOnly`, `SameSite=Lax` cookies.
@@ -155,7 +158,11 @@ All settings can be customized through the **Settings** page in the web UI:
 
 ## 💾 Database Backups & Maintenance
 
-ZenGram operates SQLite in **WAL (Write-Ahead Logging)** mode for high-concurrency performance. To ensure consistent backups without copying in-flight transaction locks:
+### 1. 1-Click Web Backup (Recommended)
+Inside the web UI under **Settings ➔ Database & Storage Maintenance**, click **"Download Backup Archive (.zip)"**. ZenGram generates a consistent WAL-safe hot snapshot of `zengram.db` packaged with your encryption key (`jwt_secret.key`) and snapshot metadata into a single `.zip` file downloaded directly to your computer.
+
+### 2. Manual Terminal Hot Backup
+ZenGram operates SQLite in **WAL (Write-Ahead Logging)** mode for high-concurrency performance. To create a consistent command-line backup without copying in-flight transaction locks:
 
 ```bash
 # Recommended WAL-safe hot backup command:
@@ -163,7 +170,7 @@ sqlite3 zengram.db ".backup zengram_backup_$(date +%Y%m%d).db"
 ```
 
 > [!TIP]
-> Do not use plain `cp zengram.db backup.db` while the server is active, as transactions held in `zengram.db-wal` may be excluded from the snapshot.
+> Do not use plain `cp zengram.db backup.db` while the server is active, as transactions held in `zengram.db-wal` may be excluded from the snapshot. Always use the 1-Click Web Backup or `sqlite3 .backup`.
 
 ---
 

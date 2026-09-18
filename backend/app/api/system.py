@@ -685,3 +685,104 @@ async def get_system_hardware(db: AsyncSession = Depends(get_db)):
         process_memory_formatted=proc_mem,
         python_version=py_ver
     )
+
+
+# -------------------------------------------------------------
+# Full Database & Security Key Backup
+# -------------------------------------------------------------
+
+@router.get("/backup/download")
+async def download_database_backup(
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Generate a consistent WAL-safe SQLite database snapshot bundled with jwt_secret.key in a timestamped ZIP."""
+    import sqlite3
+    import tempfile
+    import zipfile
+    import json
+    from fastapi.responses import FileResponse
+    from starlette.background import BackgroundTask
+    from backend.app.auth_utils import SECRET_FILE_PATH, OLD_SECRET_FILE_PATH
+
+    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    temp_zip = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    temp_zip_path = temp_zip.name
+    temp_zip.close()
+
+    temp_db_snap = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    temp_db_snap_path = temp_db_snap.name
+    temp_db_snap.close()
+
+    try:
+        # 1. Determine local database path
+        db_url = settings.DATABASE_URL
+        raw_db_path = db_url.replace("sqlite+aiosqlite:///", "").replace("sqlite:///", "")
+        db_file = Path(raw_db_path).resolve()
+
+        # 2. Perform online WAL-safe backup using Python standard sqlite3 connection
+        if db_file.exists():
+            src_conn = sqlite3.connect(str(db_file))
+            dst_conn = sqlite3.connect(temp_db_snap_path)
+            with dst_conn:
+                src_conn.backup(dst_conn, pages=100)
+            dst_conn.close()
+            src_conn.close()
+
+        # 3. Read metadata stats for info.json in ZIP
+        total_media = await db.scalar(select(func.count(MediaItem.id)))
+        total_profiles = await db.scalar(select(func.count(WatchedProfile.id)))
+
+        meta_info = {
+            "app": "ZenGram",
+            "version": settings.VERSION,
+            "created_at": datetime.utcnow().isoformat() + "Z",
+            "database_file": "zengram.db",
+            "key_file": "jwt_secret.key",
+            "stats": {
+                "total_media_items": total_media or 0,
+                "total_profiles": total_profiles or 0
+            },
+            "restore_instructions": "To restore this backup: 1. Stop zengram.service. 2. Copy zengram.db into your ZenGram project root directory. 3. Copy jwt_secret.key to ~/.config/zengram/jwt_secret.key (chmod 0600). 4. Restart zengram.service."
+        }
+
+        # 4. Pack database, encryption key, and metadata into ZIP archive
+        key_file_to_pack = None
+        if os.path.exists(SECRET_FILE_PATH):
+            key_file_to_pack = SECRET_FILE_PATH
+        elif os.path.exists(OLD_SECRET_FILE_PATH):
+            key_file_to_pack = OLD_SECRET_FILE_PATH
+
+        with zipfile.ZipFile(temp_zip_path, "w", zipfile.ZIP_DEFLATED) as zip_f:
+            if os.path.exists(temp_db_snap_path) and os.path.getsize(temp_db_snap_path) > 0:
+                zip_f.write(temp_db_snap_path, arcname="zengram.db")
+            if key_file_to_pack:
+                zip_f.write(key_file_to_pack, arcname="jwt_secret.key")
+            zip_f.writestr("metadata.json", json.dumps(meta_info, indent=2))
+
+        def cleanup_temp_files():
+            try:
+                if os.path.exists(temp_zip_path):
+                    os.remove(temp_zip_path)
+                if os.path.exists(temp_db_snap_path):
+                    os.remove(temp_db_snap_path)
+            except Exception:
+                pass
+
+        filename = f"zengram_backup_{timestamp_str}.zip"
+        return FileResponse(
+            path=temp_zip_path,
+            filename=filename,
+            media_type="application/zip",
+            background=BackgroundTask(cleanup_temp_files)
+        )
+    except Exception as e:
+        logger.error(f"Error generating backup archive: {e}")
+        try:
+            if os.path.exists(temp_zip_path):
+                os.remove(temp_zip_path)
+            if os.path.exists(temp_db_snap_path):
+                os.remove(temp_db_snap_path)
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"Failed to generate backup archive: {str(e)}")

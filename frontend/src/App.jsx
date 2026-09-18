@@ -14,7 +14,7 @@ import LightboxModal from './components/LightboxModal'
 import DevToolsGuideModal from './components/DevToolsGuideModal'
 import LoginScreen from './components/LoginScreen'
 import ProfileAvatar from './components/ProfileAvatar'
-import { Download, RefreshCw, Layers, CheckCircle2, Shield, Eye, EyeOff, Users, UserCheck, Key, Settings as SettingsIcon, HardDrive, RotateCcw, Trash2, AlertCircle, ExternalLink, FolderDown, Clock, Loader2, Activity, Terminal, Sparkles, GitBranch, TerminalSquare, ChevronDown, ChevronUp, ChevronsUpDown, Monitor, BookOpen, AlertTriangle, Lock, BarChart3, Server, Cpu, Copy, Check, Box, Boxes, PieChart, ShieldCheck } from 'lucide-react'
+import { Download, RefreshCw, Layers, CheckCircle2, Shield, Eye, EyeOff, Users, UserCheck, Key, Settings as SettingsIcon, HardDrive, RotateCcw, Trash2, AlertCircle, ExternalLink, FolderDown, Clock, Loader2, Activity, Terminal, Sparkles, GitBranch, TerminalSquare, ChevronDown, ChevronUp, ChevronsUpDown, Monitor, BookOpen, AlertTriangle, Lock, BarChart3, Server, Cpu, Copy, Check, Box, Boxes, PieChart, ShieldCheck, Database } from 'lucide-react'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
@@ -2914,6 +2914,41 @@ export default function App() {
 
                 {expandedSections.maintenance && (
                   <div className="settings-accordion-body">
+                    <div className="maintenance-item" style={{ borderLeft: '3px solid #6366f1', paddingLeft: '12px', marginBottom: '16px' }}>
+                      <div style={{ fontWeight: '600', fontSize: '0.92rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <Database size={17} style={{ color: '#818cf8' }} />
+                        <span>Download Full System Backup (.zip)</span>
+                        <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '12px', background: 'rgba(99, 102, 241, 0.15)', color: '#a5b4fc', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
+                          Database & Encryption Key
+                        </span>
+                      </div>
+                      <p className="settings-description" style={{ marginTop: '6px' }}>
+                        Generates a consistent WAL-safe hot snapshot of your SQLite database (<code>zengram.db</code>) packaged together with your hardware-isolated encryption key (<code>jwt_secret.key</code>) and snapshot metadata. Restoring this archive fully recovers all feeds, tracked accounts, and encrypted credentials.
+                      </p>
+                      <div style={{ marginTop: '10px' }}>
+                        <a
+                          href="/api/v1/system/backup/download"
+                          download
+                          className="btn-primary"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            textDecoration: 'none',
+                            background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                            color: '#ffffff',
+                            fontWeight: '600',
+                            padding: '9px 18px',
+                            borderRadius: '8px',
+                            boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)'
+                          }}
+                        >
+                          <Download size={16} />
+                          <span>Download Backup Archive (.zip)</span>
+                        </a>
+                      </div>
+                    </div>
+
                     <div className="maintenance-item">
                       <div style={{ fontWeight: '600', fontSize: '0.88rem', color: 'var(--text-main)' }}>
                         Verify Disk Media Files

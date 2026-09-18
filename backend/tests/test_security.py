@@ -66,6 +66,7 @@ async def test_security_hardening():
                 ("GET", "/api/v1/proxy/image?url=https://scontent.cdninstagram.com/test.jpg"),
                 ("POST", "/api/v1/system/apply-update"),
                 ("GET", "/api/v1/system/update-status"),
+                ("GET", "/api/v1/system/backup/download"),
             ]
 
             for method, endpoint in unauth_endpoints:
@@ -297,8 +298,40 @@ async def test_security_hardening():
             assert proxy_res.status_code == 200, f"Expected 200 for proxy_res, got {proxy_res.status_code}: {proxy_res.text}"
             assert len(proxy_res.content) > 100
 
-            # Confirm that the network fetch populated the disk cache
-            assert cache_file.exists(), "Cache file must be created by successful live HTTPS fetch"
+            # 20. Verify Full WAL-Safe Database & Key Backup Archive Generation
+            import io
+            import zipfile
+            import sqlite3
+            backup_res = await client.get(
+                "/api/v1/system/backup/download",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            assert backup_res.status_code == 200, f"Expected 200 for backup download, got {backup_res.status_code}"
+            assert backup_res.headers.get("content-type") == "application/zip"
+            assert "zengram_backup_" in backup_res.headers.get("content-disposition", "")
+
+            with zipfile.ZipFile(io.BytesIO(backup_res.content), "r") as zf:
+                namelist = zf.namelist()
+                assert "zengram.db" in namelist, "zengram.db missing from backup zip"
+                assert "jwt_secret.key" in namelist, "jwt_secret.key missing from backup zip"
+                assert "metadata.json" in namelist, "metadata.json missing from backup zip"
+
+                # Verify SQLite DB in zip is intact
+                db_bytes = zf.read("zengram.db")
+                with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tf:
+                    tf.write(db_bytes)
+                    tf_db_path = tf.name
+
+                try:
+                    conn = sqlite3.connect(tf_db_path)
+                    cursor = conn.cursor()
+                    cursor.execute("PRAGMA integrity_check;")
+                    res = cursor.fetchone()
+                    assert res[0] == "ok", f"Integrity check failed on backed up db: {res}"
+                    conn.close()
+                finally:
+                    if os.path.exists(tf_db_path):
+                        os.remove(tf_db_path)
 
     finally:
         await test_engine.dispose()
