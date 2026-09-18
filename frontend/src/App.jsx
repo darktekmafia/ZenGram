@@ -8,6 +8,7 @@ import BatchConfigModal from './components/BatchConfigModal'
 import UpdateModal from './components/UpdateModal'
 import DevToolsGuideModal from './components/DevToolsGuideModal'
 import LoginScreen from './components/LoginScreen'
+import ProfileAvatar from './components/ProfileAvatar'
 import { Download, RefreshCw, Layers, CheckCircle2, Shield, Eye, EyeOff, Users, UserCheck, Key, Settings as SettingsIcon, HardDrive, RotateCcw, Trash2, AlertCircle, ExternalLink, FolderDown, Clock, Loader2, Activity, Terminal, Sparkles, GitBranch, TerminalSquare, ChevronDown, ChevronUp, ChevronsUpDown, Monitor, BookOpen, AlertTriangle, Lock, BarChart3, Server, Cpu, Copy, Check, Box, Boxes, PieChart, ShieldCheck } from 'lucide-react'
 
 export default function App() {
