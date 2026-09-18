@@ -29,6 +29,7 @@ class UserSessionBase(BaseModel):
 
 class UserSessionCreate(UserSessionBase):
     session_cookie: str
+    profile_pic_url: Optional[str] = None
 
 class UserSessionResponse(UserSessionBase):
     id: int

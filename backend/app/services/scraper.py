@@ -523,7 +523,40 @@ class InstagramScraperEngine:
         
         cookies_dict = parse_instagram_cookies(self.session_cookie)
         user_id = extract_user_id_from_cookies(cookies_dict, self.session_cookie)
+
+        # 1. Fast lightweight HTTP HTML extraction (works in headless LXC without Chromium/Playwright)
+        try:
+            import re
+            import html
+            async with httpx.AsyncClient(headers=self.headers, follow_redirects=True, timeout=8.0) as client:
+                resp = await client.get("https://www.instagram.com/")
+                if resp.status_code == 200 and resp.text:
+                    pic_matches = re.findall(r'\"profile_pic_url\"[\s:]+\"([^\"]+)\"', resp.text)
+                    user_matches = re.findall(r'\"username\"[\s:]+\"([^\"]+)\"', resp.text)
+                    
+                    found_pic = None
+                    if pic_matches:
+                        raw_pic = pic_matches[0]
+                        clean_pic = raw_pic.replace(r'\\u0026', '&').replace(r'\u0026', '&').replace(r'\\/', '/').replace(r'\/', '/').replace(r'\\u0025', '%').replace(r'\u0025', '%')
+                        clean_pic = html.unescape(clean_pic).strip()
+                        if clean_pic.startswith("http"):
+                            found_pic = clean_pic
+                            
+                    found_user = user_matches[0] if user_matches else None
+                    if found_user and found_user in ("feed", "explore", "reels", "direct", "stories"):
+                        found_user = None
+
+                    if found_pic or (found_user and found_user != "admin"):
+                        logger.info(f"Direct HTTP discovered logged-in profile: user={found_user}, avatar={bool(found_pic)}")
+                        return {
+                            "username": found_user or "admin",
+                            "profile_pic_url": found_pic,
+                            "user_id": user_id
+                        }
+        except Exception as e:
+            logger.warning(f"Direct HTTP profile extraction encountered error: {e}")
         
+        # 2. Fallback to Playwright headful/headless DOM scan
         try:
             from playwright.async_api import async_playwright
             cookies_to_add = []
