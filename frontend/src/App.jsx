@@ -2333,14 +2333,14 @@ export default function App() {
                           <input
                             className="input-field"
                             type="text"
-                            placeholder="e.g. dad_d_y_o"
+                            placeholder="e.g. your_instagram_handle (or leave blank to auto-detect)"
                             value={sessionUsernameInput}
                             onChange={(e) => setSessionUsernameInput(e.target.value)}
                             style={{ margin: 0 }}
                           />
                         </div>
                         <p className="settings-description">
-                          Your Instagram account handle used for profile identification and avatar display in the sidebar.
+                          Your Instagram account handle used for profile identification and avatar display in the sidebar. Can be left blank to auto-detect from your session cookie.
                         </p>
                       </div>
 

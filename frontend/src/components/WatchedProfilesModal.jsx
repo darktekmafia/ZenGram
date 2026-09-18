@@ -307,7 +307,7 @@ export default function WatchedProfilesModal({
               <textarea
                 className="input-field"
                 rows={5}
-                placeholder={`Paste a list of usernames or profile URLs, one per line or comma-separated:\n\n@tay_miles_24\nhttps://instagram.com/design_daily\nphotography_hub\ncreative_shots`}
+                placeholder={`Paste a list of usernames or profile URLs, one per line or comma-separated:\n\n@photography_hub\nhttps://instagram.com/nature_shots\nurban_vibes\ncreative_daily`}
                 value={bulkText}
                 onChange={(e) => setBulkText(e.target.value)}
                 style={{
