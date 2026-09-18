@@ -10,6 +10,7 @@ import UpdateConsoleModal from './components/UpdateConsoleModal'
 import PaginationBar from './components/PaginationBar'
 import HighlightsTray from './components/HighlightsTray'
 import HighlightViewerModal from './components/HighlightViewerModal'
+import LightboxModal from './components/LightboxModal'
 import DevToolsGuideModal from './components/DevToolsGuideModal'
 import LoginScreen from './components/LoginScreen'
 import ProfileAvatar from './components/ProfileAvatar'
@@ -37,6 +38,8 @@ export default function App() {
   })
   const [selectedUserFilter, setSelectedUserFilter] = useState(null)
   const [selectedHighlight, setSelectedHighlight] = useState(null)
+  const [activeLightboxItem, setActiveLightboxItem] = useState(null)
+  const [activeLightboxSlide, setActiveLightboxSlide] = useState(0)
   const [sessionInput, setSessionInput] = useState('')
   const [sessionUsernameInput, setSessionUsernameInput] = useState('')
   const [showSessionKey, setShowSessionKey] = useState(false)
@@ -690,6 +693,10 @@ export default function App() {
         method: 'POST',
       })
       if (res.ok) {
+        const savedItem = await res.json()
+        if (activeLightboxItem && activeLightboxItem.post_id === postId) {
+          setActiveLightboxItem(savedItem)
+        }
         fetchFeed()
         fetchDownloadedContent()
       }
@@ -710,6 +717,9 @@ export default function App() {
       }
       const res = await fetch(url, { method: 'DELETE' })
       if (res.ok) {
+        if (!slideIndex && activeLightboxItem?.post_id === postId) {
+          setActiveLightboxItem((prev) => prev ? { ...prev, is_saved: false, local_file_path: null } : null)
+        }
         await fetchDownloadedContent()
         await fetchFeed()
       }
@@ -1101,6 +1111,28 @@ export default function App() {
     }
   }
 
+  const handleOpenLightbox = (item, slideIndex = 0) => {
+    setActiveLightboxItem(item)
+    setActiveLightboxSlide(slideIndex)
+  }
+
+  const handleCloseLightbox = () => {
+    setActiveLightboxItem(null)
+    setActiveLightboxSlide(0)
+  }
+
+  const handleNavigateLightboxPost = (direction) => {
+    if (!activeLightboxItem) return
+    const currentList = activeTab === 'downloads' ? downloadedItems : mediaItems
+    const currentIndex = currentList.findIndex((it) => it.post_id === activeLightboxItem.post_id)
+    if (currentIndex === -1) return
+    const nextIndex = currentIndex + direction
+    if (nextIndex >= 0 && nextIndex < currentList.length) {
+      setActiveLightboxItem(currentList[nextIndex])
+      setActiveLightboxSlide(0)
+    }
+  }
+
   return (
     <div className="app-container">
       <Sidebar
@@ -1274,7 +1306,12 @@ export default function App() {
               <div>
                 <div className="media-grid">
                   {mediaItems.map((item) => (
-                    <MediaCard key={item.id} item={item} onSaveMedia={handleSaveMedia} />
+                    <MediaCard
+                      key={item.id}
+                      item={item}
+                      onSaveMedia={handleSaveMedia}
+                      onOpenLightbox={handleOpenLightbox}
+                    />
                   ))}
                 </div>
 
@@ -1456,7 +1493,13 @@ export default function App() {
                 <div>
                   <div className="media-grid">
                     {downloadedItems.map((item) => (
-                      <MediaCard key={item.id} item={item} onSaveMedia={handleSaveMedia} onDeleteMedia={handleDeleteMedia} />
+                      <MediaCard
+                        key={item.id}
+                        item={item}
+                        onSaveMedia={handleSaveMedia}
+                        onDeleteMedia={handleDeleteMedia}
+                        onOpenLightbox={handleOpenLightbox}
+                      />
                     ))}
                   </div>
 
@@ -3313,6 +3356,18 @@ export default function App() {
           username={selectedUserFilter || selectedHighlight.username}
           onClose={() => setSelectedHighlight(null)}
           onSaveMedia={handleSaveMedia}
+        />
+      )}
+
+      {activeLightboxItem && (
+        <LightboxModal
+          item={activeLightboxItem}
+          initialSlideIndex={activeLightboxSlide}
+          feedItems={activeTab === 'downloaded' ? downloadedItems : mediaItems}
+          onClose={handleCloseLightbox}
+          onSaveMedia={handleSaveMedia}
+          onDeleteMedia={handleDeleteMedia}
+          onNavigatePost={handleNavigateLightboxPost}
         />
       )}
     </div>

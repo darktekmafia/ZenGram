@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { Download, ExternalLink, Check, Image as ImageIcon, Video, Layers, Flame, Heart, MessageCircle, Trash2, ChevronLeft, ChevronRight, FileArchive, Loader2, Play } from 'lucide-react'
+import { Download, ExternalLink, Check, Image as ImageIcon, Video, Layers, Flame, Heart, MessageCircle, Trash2, ChevronLeft, ChevronRight, FileArchive, Loader2, Play, Maximize2 } from 'lucide-react'
 
-export default function MediaCard({ item, onSaveMedia, onDeleteMedia }) {
+export default function MediaCard({ item, onSaveMedia, onDeleteMedia, onOpenLightbox }) {
   const [saving, setSaving] = useState(false)
   const [activeSlide, setActiveSlide] = useState(0)
   const [videoError, setVideoError] = useState(false)
@@ -30,8 +30,9 @@ export default function MediaCard({ item, onSaveMedia, onDeleteMedia }) {
     if (loadingSlides || (loadedSlides && loadedSlides.length > 1)) return loadedSlides
     setLoadingSlides(true)
     try {
-      const code = item.shortcode || item.post_id
-      const res = await fetch(`/api/v1/feed/carousel/${code}`)
+      const rawCode = (item.shortcode || item.post_id || '').replace(/^ig_/, '')
+      const code = rawCode.length >= 11 ? rawCode.slice(0, 11) : rawCode
+      const res = await fetch(`/api/v1/feed/carousel/${encodeURIComponent(code)}`)
       if (res.ok) {
         const data = await res.json()
         if (data.slides && data.slides.length > 0) {
@@ -129,13 +130,15 @@ export default function MediaCard({ item, onSaveMedia, onDeleteMedia }) {
   }
 
   const getOriginalUrl = () => {
+    const rawCode = (item.shortcode || item.post_id || '').replace(/^ig_/, '')
+    const canonical = rawCode.length >= 11 ? rawCode.slice(0, 11) : rawCode
     if (item.media_type === 'STORY') {
       return `https://www.instagram.com/stories/${item.username}/`
     }
     if (item.media_type === 'VIDEO') {
-      return `https://www.instagram.com/reel/${item.shortcode}/`
+      return `https://www.instagram.com/reel/${canonical}/`
     }
-    return `https://www.instagram.com/p/${item.shortcode}/`
+    return `https://www.instagram.com/p/${canonical}/`
   }
 
   const getVideoSrc = () => {
@@ -202,8 +205,9 @@ export default function MediaCard({ item, onSaveMedia, onDeleteMedia }) {
 
     setLoadingVideo(true)
     try {
-      const code = item.shortcode || item.post_id
-      const res = await fetch(`/api/v1/feed/carousel/${code}`)
+      const rawCode = (item.shortcode || item.post_id || '').replace(/^ig_/, '')
+      const code = rawCode.length >= 11 ? rawCode.slice(0, 11) : rawCode
+      const res = await fetch(`/api/v1/feed/carousel/${encodeURIComponent(code)}`)
       if (res.ok) {
         const data = await res.json()
         if (data.slides && data.slides.length > 0) {
@@ -249,7 +253,46 @@ export default function MediaCard({ item, onSaveMedia, onDeleteMedia }) {
         </span>
       </div>
 
-      <div className="card-preview" style={{ position: 'relative' }}>
+      <div
+        className="card-preview"
+        style={{ position: 'relative', cursor: onOpenLightbox ? 'pointer' : 'default' }}
+        onClick={() => {
+          if (onOpenLightbox && !isPlayingVideo) {
+            onOpenLightbox(item, activeSlide)
+          }
+        }}
+      >
+        {onOpenLightbox && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpenLightbox(item, activeSlide)
+            }}
+            style={{
+              position: 'absolute',
+              top: '10px',
+              left: '10px',
+              background: 'rgba(0, 0, 0, 0.65)',
+              backdropFilter: 'blur(4px)',
+              border: 'none',
+              borderRadius: '6px',
+              width: '26px',
+              height: '26px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#fff',
+              cursor: 'pointer',
+              zIndex: 10,
+              transition: 'background 0.2s, transform 0.2s'
+            }}
+            title="Open in Fullscreen Lightbox"
+          >
+            <Maximize2 size={13} />
+          </button>
+        )}
+
         {isPlayingVideo && playableVideo && !videoError ? (
           <video
             key={`vid_playing_${item.post_id}_${activeSlide}_${playableVideo}`}
