@@ -180,6 +180,12 @@ class SystemHardwareResponse(BaseModel):
     process_memory_formatted: str
     python_version: str
 
+class CommitSummary(BaseModel):
+    hash: str
+    message: str
+    author: Optional[str] = None
+    date: Optional[str] = None
+
 class VersionInfoResponse(BaseModel):
     version: str
     commit_hash: str
@@ -191,7 +197,18 @@ class VersionInfoResponse(BaseModel):
     latest_version: str
     latest_commit: Optional[str] = None
     behind_by: int = 0
+    pending_commits: List[CommitSummary] = []
     distro_name: str
     hostname: str
     python_version: str
     update_status_text: str
+
+class UpdateStatusResponse(BaseModel):
+    status: str  # idle, in_progress, completed, restarting, failed
+    progress_percent: int = 0
+    current_stage: str = "Ready"
+    logs: str = ""
+    error: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+

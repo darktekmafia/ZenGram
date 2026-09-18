@@ -6,6 +6,7 @@ import WatchedProfilesModal from './components/WatchedProfilesModal'
 import ConsoleModal from './components/ConsoleModal'
 import BatchConfigModal from './components/BatchConfigModal'
 import UpdateModal from './components/UpdateModal'
+import UpdateConsoleModal from './components/UpdateConsoleModal'
 import DevToolsGuideModal from './components/DevToolsGuideModal'
 import LoginScreen from './components/LoginScreen'
 import ProfileAvatar from './components/ProfileAvatar'
@@ -51,6 +52,9 @@ export default function App() {
   const [systemVersion, setSystemVersion] = useState(null)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false)
+  const [updateModalTab, setUpdateModalTab] = useState('auto')
+  const [isUpdateConsoleOpen, setIsUpdateConsoleOpen] = useState(false)
+  const [isUpdateConsoleDocked, setIsUpdateConsoleDocked] = useState(false)
   const [isDevToolsGuideOpen, setIsDevToolsGuideOpen] = useState(false)
   const [interactiveLoginState, setInteractiveLoginState] = useState(null)
   const [isStartingBrowserLogin, setIsStartingBrowserLogin] = useState(false)
@@ -303,6 +307,20 @@ export default function App() {
       console.error('Error checking updates:', err)
     } finally {
       setCheckingUpdate(false)
+    }
+  }
+
+  // Trigger Web-Based Update Runner
+  const handleApplyUpdate = async () => {
+    try {
+      const res = await fetch('/api/v1/system/apply-update', { method: 'POST' })
+      if (res.ok) {
+        setIsUpdateModalOpen(false)
+        setIsUpdateConsoleOpen(true)
+        setIsUpdateConsoleDocked(false)
+      }
+    } catch (err) {
+      console.error('Error initiating update runner:', err)
     }
   }
 
@@ -2849,28 +2867,61 @@ export default function App() {
                         type="button"
                         className="btn-secondary"
                         style={{ fontSize: '0.82rem', padding: '6px 12px' }}
-                        onClick={() => setIsUpdateModalOpen(true)}
+                        onClick={() => {
+                          setUpdateModalTab('installed')
+                          setIsUpdateModalOpen(true)
+                        }}
                       >
-                        <span>View Release Details</span>
+                        <span>Installed Version Details</span>
                       </button>
                     </div>
 
                     {systemVersion?.update_available && (
                       <div style={{
-                        marginTop: '12px',
-                        padding: '10px 14px',
-                        background: 'rgba(167, 139, 250, 0.1)',
-                        border: '1px solid rgba(167, 139, 250, 0.3)',
-                        borderRadius: '8px',
-                        fontSize: '0.82rem',
+                        marginTop: '14px',
+                        padding: '12px 16px',
+                        background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(139, 92, 246, 0.15))',
+                        border: '1px solid rgba(139, 92, 246, 0.35)',
+                        borderRadius: '10px',
+                        fontSize: '0.85rem',
                         color: '#c4b5fd',
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'space-between'
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: '12px'
                       }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <Sparkles size={16} />
-                          <span><strong>{systemVersion.update_status_text}</strong> • Run <code style={{ color: '#34d399', background: '#0a0d14', padding: '2px 6px', borderRadius: '4px' }}>./install.sh --update</code> to apply.</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <Sparkles size={18} style={{ color: '#a78bfa' }} />
+                          <div>
+                            <div style={{ fontWeight: '600', color: '#fff' }}>{systemVersion.update_status_text} (v{systemVersion.latest_version})</div>
+                            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                              {systemVersion.pending_commits?.length || systemVersion.behind_by} new commit{systemVersion.behind_by !== 1 ? 's' : ''} ready to install.
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            style={{ fontSize: '0.78rem', padding: '5px 12px', background: 'rgba(255,255,255,0.06)' }}
+                            onClick={() => {
+                              setUpdateModalTab('changelog')
+                              setIsUpdateModalOpen(true)
+                            }}
+                          >
+                            <span>Update Details</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            className="btn-primary"
+                            style={{ fontSize: '0.78rem', padding: '5px 14px', background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)' }}
+                            onClick={handleApplyUpdate}
+                          >
+                            <span>Apply Web Update</span>
+                          </button>
                         </div>
                       </div>
                     )}
@@ -3077,6 +3128,23 @@ export default function App() {
         systemVersion={systemVersion}
         onCheckUpdate={() => handleCheckUpdate()}
         checkingUpdate={checkingUpdate}
+        onApplyUpdate={handleApplyUpdate}
+        initialTab={updateModalTab}
+      />
+
+      <UpdateConsoleModal
+        isOpen={isUpdateConsoleOpen}
+        onClose={() => {
+          setIsUpdateConsoleOpen(false)
+          setIsUpdateConsoleDocked(false)
+        }}
+        onMinimize={() => {
+          setIsUpdateConsoleOpen(false)
+          setIsUpdateConsoleDocked(true)
+        }}
+        onReloadPage={() => {
+          window.location.reload()
+        }}
       />
 
       <DevToolsGuideModal

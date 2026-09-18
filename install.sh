@@ -12,12 +12,24 @@ APP_PORT="8484"
 IS_UPDATE=0
 CHECK_UPDATE_ONLY=0
 SKIP_DESKTOP=0
+NON_INTERACTIVE=0
+SKIP_RESTART=0
 
 # Parse CLI arguments
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
         --update)
             IS_UPDATE=1
+            shift
+            ;;
+        --web-update|--non-interactive)
+            IS_UPDATE=1
+            NON_INTERACTIVE=1
+            SKIP_DESKTOP=1
+            shift
+            ;;
+        --no-restart)
+            SKIP_RESTART=1
             shift
             ;;
         --check-update)
@@ -40,12 +52,15 @@ while [[ "$#" -gt 0 ]]; do
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --update         Update existing installation, rebuild assets, and restart service"
-            echo "  --check-update   Check if new updates are available from Git remote"
-            echo "  --host <IP>      Bind host IP for web interface (default: 0.0.0.0)"
-            echo "  --port <PORT>    Bind port for web interface (default: 8484)"
-            echo "  --no-desktop     Skip desktop launcher and shortcut installation (headless mode)"
-            echo "  --help, -h       Show this help message"
+            echo "  --update            Update existing installation, rebuild assets, and restart service"
+            echo "  --web-update        Non-interactive headless update for Web UI update manager"
+            echo "  --non-interactive   Run without prompting for user interaction or GUI shortcuts"
+            echo "  --no-restart        Compile dependencies and build bundle without restarting systemd service"
+            echo "  --check-update      Check if new updates are available from Git remote"
+            echo "  --host <IP>         Bind host IP for web interface (default: 0.0.0.0)"
+            echo "  --port <PORT>       Bind port for web interface (default: 8484)"
+            echo "  --no-desktop        Skip desktop launcher and shortcut installation (headless mode)"
+            echo "  --help, -h          Show this help message"
             exit 0
             ;;
         *)
@@ -266,8 +281,12 @@ if [ "$(id -u)" -eq 0 ]; then
     echo "$SERVICE_CONTENT" > "$SYSTEMD_PATH"
     systemctl daemon-reload
     systemctl enable --now zengram.service
-    systemctl restart zengram.service
-    echo "[✓] System-level service 'zengram.service' enabled and active."
+    if [ "$SKIP_RESTART" -eq 0 ]; then
+        systemctl restart zengram.service
+        echo "[✓] System-level service 'zengram.service' enabled and active."
+    else
+        echo "[✓] System-level service 'zengram.service' configured (restart deferred)."
+    fi
 else
     # Running as Standard User (e.g. Fedora Workstation)
     USER_SYSTEMD_DIR="$HOME/.config/systemd/user"
@@ -275,8 +294,12 @@ else
     echo "$SERVICE_CONTENT" > "$USER_SYSTEMD_DIR/zengram.service"
     systemctl --user daemon-reload
     systemctl --user enable --now zengram.service
-    systemctl --user restart zengram.service
-    echo "[✓] User-level service 'zengram.service' enabled and active."
+    if [ "$SKIP_RESTART" -eq 0 ]; then
+        systemctl --user restart zengram.service
+        echo "[✓] User-level service 'zengram.service' enabled and active."
+    else
+        echo "[✓] User-level service 'zengram.service' configured (restart deferred)."
+    fi
 fi
 
 echo "============================================================"

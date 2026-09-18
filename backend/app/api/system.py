@@ -5,9 +5,11 @@ import subprocess
 import logging
 import time
 import shutil
+import asyncio
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
-from fastapi import APIRouter, Query, Depends
+from fastapi import APIRouter, Query, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -15,11 +17,14 @@ import psutil
 
 from backend.app.config import settings
 from backend.app.database import get_db
-from backend.app.models import WatchedProfile, MediaItem, AppSettings
+from backend.app.models import WatchedProfile, MediaItem, AppSettings, AdminUser
+from backend.app.auth_utils import get_current_admin
 from backend.app.schemas import (
     VersionInfoResponse,
     AppStatsResponse,
-    SystemHardwareResponse
+    SystemHardwareResponse,
+    CommitSummary,
+    UpdateStatusResponse
 )
 
 logger = logging.getLogger("zengram.system")
@@ -307,6 +312,28 @@ def get_git_info(fetch_remote: bool = False) -> Dict[str, Any]:
                             info["latest_version"] = word.lstrip("v")
                             break
 
+                # Fetch list of pending upstream commits with author and relative date
+                res_log = subprocess.run(
+                    ["git", "log", f"HEAD..{remote_ref}", "--format=%H|%s|%an|%ad", "--date=relative", "-n", "20"],
+                    cwd=str(base_dir),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=5
+                )
+                pending = []
+                if res_log.returncode == 0 and res_log.stdout.strip():
+                    for line in res_log.stdout.strip().splitlines():
+                        parts = line.split("|", 3)
+                        if len(parts) == 4:
+                            pending.append(CommitSummary(
+                                hash=parts[0][:7],
+                                message=parts[1],
+                                author=parts[2],
+                                date=parts[3]
+                            ))
+                info["pending_commits"] = pending
+
     except Exception as e:
         logger.warning(f"Error reading git info: {e}")
 
@@ -355,11 +382,116 @@ def _build_version_response(git_info: Dict[str, Any]) -> VersionInfoResponse:
         latest_version=git_info["latest_version"],
         latest_commit=git_info["latest_commit"],
         behind_by=git_info["behind_by"],
+        pending_commits=git_info.get("pending_commits", []),
         distro_name=distro,
         hostname=hostname,
         python_version=py_ver,
         update_status_text=update_text
     )
+
+
+# -------------------------------------------------------------
+# Web Update Runner State & Background Executor
+# -------------------------------------------------------------
+
+_active_update_lock = asyncio.Lock()
+_active_update_job: Dict[str, Any] = {
+    "status": "idle",  # idle, in_progress, restarting, completed, failed
+    "progress_percent": 0,
+    "current_stage": "Ready",
+    "logs": "",
+    "error": None,
+    "started_at": None,
+    "finished_at": None
+}
+
+
+async def _delayed_service_restart():
+    """Wait 3 seconds to allow frontend polling to receive final logs, then trigger restart."""
+    await asyncio.sleep(3.0)
+    logger.info("Executing service restart after web update...")
+    is_root = (os.geteuid() == 0) if hasattr(os, "geteuid") else False
+    restart_cmd = ["systemctl", "restart", "zengram.service"] if is_root else ["systemctl", "--user", "restart", "zengram.service"]
+    try:
+        subprocess.Popen(restart_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        logger.warning(f"Failed to issue service restart command: {e}")
+
+
+async def _run_update_process():
+    global _active_update_job
+    base_dir = Path(__file__).resolve().parent.parent.parent.parent
+    installer_path = base_dir / "install.sh"
+    
+    _active_update_job["status"] = "in_progress"
+    _active_update_job["progress_percent"] = 5
+    _active_update_job["current_stage"] = "Initializing Update Runner..."
+    _active_update_job["logs"] = f"[{datetime.now().strftime('%H:%M:%S')}] Launching ZenGram automated update runner...\n"
+    _active_update_job["error"] = None
+    _active_update_job["started_at"] = datetime.now().isoformat()
+    _active_update_job["finished_at"] = None
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            str(installer_path),
+            "--update",
+            "--non-interactive",
+            "--no-restart",
+            cwd=str(base_dir),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env=dict(os.environ, PYTHONUNBUFFERED="1")
+        )
+
+        while True:
+            line = await proc.stdout.readline()
+            if not line:
+                break
+            decoded = line.decode("utf-8", errors="replace")
+            _active_update_job["logs"] += decoded
+            
+            # Parse stages & progress from install.sh output
+            if "[1/6]" in decoded:
+                _active_update_job["current_stage"] = "Verifying System Dependencies..."
+                _active_update_job["progress_percent"] = 15
+            elif "[2/6]" in decoded:
+                _active_update_job["current_stage"] = "Updating Python Virtual Environment..."
+                _active_update_job["progress_percent"] = 30
+            elif "[3/6]" in decoded:
+                _active_update_job["current_stage"] = "Installing Backend Packages & Browser Engine..."
+                _active_update_job["progress_percent"] = 50
+            elif "[4/6]" in decoded:
+                _active_update_job["current_stage"] = "Compiling Production Frontend Bundle (Vite)..."
+                _active_update_job["progress_percent"] = 75
+            elif "[5/6]" in decoded:
+                _active_update_job["current_stage"] = "Configuring App Environment..."
+                _active_update_job["progress_percent"] = 90
+            elif "[6/6]" in decoded:
+                _active_update_job["current_stage"] = "Finalizing Installation & Service Config..."
+                _active_update_job["progress_percent"] = 95
+
+        returncode = await proc.wait()
+        _active_update_job["finished_at"] = datetime.now().isoformat()
+
+        if returncode == 0:
+            _active_update_job["progress_percent"] = 100
+            _active_update_job["current_stage"] = "Update Succeeded! Reloading ZenGram Service..."
+            _active_update_job["status"] = "restarting"
+            _active_update_job["logs"] += f"\n[{datetime.now().strftime('%H:%M:%S')}] [✓] Web update completed successfully!\n[{datetime.now().strftime('%H:%M:%S')}] Reloading ZenGram background service in 3 seconds...\n"
+            asyncio.create_task(_delayed_service_restart())
+        else:
+            _active_update_job["status"] = "failed"
+            _active_update_job["current_stage"] = "Update Failed"
+            _active_update_job["error"] = f"Installer exited with returncode {returncode}"
+            _active_update_job["logs"] += f"\n[{datetime.now().strftime('%H:%M:%S')}] [!] Update script exited with error code {returncode}.\n"
+
+    except Exception as e:
+        logger.error(f"Error during update execution: {e}")
+        _active_update_job["status"] = "failed"
+        _active_update_job["current_stage"] = "Update Error"
+        _active_update_job["error"] = str(e)
+        _active_update_job["logs"] += f"\n[{datetime.now().strftime('%H:%M:%S')}] [!] Exception during execution: {e}\n"
+        _active_update_job["finished_at"] = datetime.now().isoformat()
 
 
 @router.get("/version", response_model=VersionInfoResponse)
@@ -374,6 +506,34 @@ async def check_for_updates():
     """Fetch upstream git origin to check for new updates."""
     git_info = get_git_info(fetch_remote=True)
     return _build_version_response(git_info)
+
+
+@router.post("/apply-update", response_model=UpdateStatusResponse)
+async def apply_web_update(
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """Trigger the non-interactive background installer update."""
+    global _active_update_job
+    async with _active_update_lock:
+        if _active_update_job["status"] in ("in_progress", "restarting"):
+            return UpdateStatusResponse(**_active_update_job)
+
+        asyncio.create_task(_run_update_process())
+        return UpdateStatusResponse(
+            status="in_progress",
+            progress_percent=5,
+            current_stage="Launching update runner...",
+            logs="Initializing update runner...\n",
+            started_at=datetime.now().isoformat()
+        )
+
+
+@router.get("/update-status", response_model=UpdateStatusResponse)
+async def get_update_status(
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """Poll live update runner status, stage, and streaming logs."""
+    return UpdateStatusResponse(**_active_update_job)
 
 
 @router.get("/stats", response_model=AppStatsResponse)

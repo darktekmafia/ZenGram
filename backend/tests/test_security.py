@@ -64,6 +64,8 @@ async def test_security_hardening():
                 ("GET", "/api/v1/downloads/jobs"),
                 ("GET", "/api/v1/settings"),
                 ("GET", "/api/v1/proxy/image?url=https://scontent.cdninstagram.com/test.jpg"),
+                ("POST", "/api/v1/system/apply-update"),
+                ("GET", "/api/v1/system/update-status"),
             ]
 
             for method, endpoint in unauth_endpoints:
