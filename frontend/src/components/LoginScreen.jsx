@@ -51,7 +51,7 @@ export default function LoginScreen({ isSetupRequired, onSuccess }) {
           setError(data.detail || 'Failed to initialize master password.')
         }
       } catch (err) {
-        setError('Network error connecting to InstaSave server.')
+        setError('Network error connecting to ZenGram server.')
       } finally {
         setLoading(false)
       }
@@ -88,7 +88,7 @@ export default function LoginScreen({ isSetupRequired, onSuccess }) {
           }
         }
       } catch (err) {
-        setError('Network error connecting to InstaSave server.')
+        setError('Network error connecting to ZenGram server.')
       } finally {
         setLoading(false)
       }
@@ -159,7 +159,7 @@ export default function LoginScreen({ isSetupRequired, onSuccess }) {
           </div>
 
           <h1 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.5px' }}>
-            InstaSave
+            ZenGram
           </h1>
           <p style={{ margin: '6px 0 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
             {setupMode
@@ -322,7 +322,7 @@ export default function LoginScreen({ isSetupRequired, onSuccess }) {
               </>
             ) : (
               <>
-                <span>{setupMode ? 'Create Master Password' : 'Unlock InstaSave'}</span>
+                <span>{setupMode ? 'Create Master Password' : 'Unlock ZenGram'}</span>
                 <ArrowRight size={18} />
               </>
             )}

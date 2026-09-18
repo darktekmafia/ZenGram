@@ -287,13 +287,13 @@ export default function DevToolsGuideModal({ isOpen, onClose }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', color: '#60a5fa', fontWeight: 600 }}>
                   <Server size={16} /> Proxmox LXC & Headless Server Best Practice
                 </div>
-                When InstaSave is installed inside an LXC or remote VPS without a local desktop display:
+                When ZenGram is installed inside an LXC or remote VPS without a local desktop display:
                 <ol style={{ margin: '8px 0 0 0', paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <li>Open your regular desktop web browser (on your Mac, Windows PC, or laptop).</li>
                   <li>Log into Instagram and extract your <code style={{ color: '#60a5fa' }}>sessionid</code> using the Chrome or Firefox steps above.</li>
-                  <li>Open your InstaSave web interface (e.g. <code style={{ color: '#60a5fa' }}>http://&lt;lxc-ip&gt;:8484</code>).</li>
+                  <li>Open your ZenGram web interface (e.g. <code style={{ color: '#60a5fa' }}>http://&lt;lxc-ip&gt;:8484</code>).</li>
                   <li>Paste the cookie into the <strong>Instagram Session Cookie</strong> field and click <strong>Save Session Cookie</strong>.</li>
-                  <li>InstaSave on the remote server will immediately begin using that session for all downloads!</li>
+                  <li>ZenGram on the remote server will immediately begin using that session for all downloads!</li>
                 </ol>
               </div>
             </div>

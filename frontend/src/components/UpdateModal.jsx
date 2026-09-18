@@ -43,7 +43,7 @@ export default function UpdateModal({
                 {isUpdateAvailable ? 'New Update Available!' : 'System Up to Date'}
               </h3>
               <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                InstaSave Version & Release Engine
+                ZenGram Version & Release Engine
               </p>
             </div>
           </div>
@@ -139,7 +139,7 @@ export default function UpdateModal({
               <span>How to Apply Update</span>
             </div>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0 0 10px 0' }}>
-              Run the update command in your terminal from the InstaSave project directory. It will pull the latest commits, install any new dependencies, recompile frontend assets, and restart the service automatically:
+              Run the update command in your terminal from the ZenGram project directory. It will pull the latest commits, install any new dependencies, recompile frontend assets, and restart the service automatically:
             </p>
             <div style={{
               display: 'flex',

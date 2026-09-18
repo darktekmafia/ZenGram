@@ -186,7 +186,7 @@ export default function Sidebar({
           <button
             type="button"
             onClick={onLogout}
-            title="Log out of InstaSave"
+            title="Log out of ZenGram"
             style={{
               background: 'transparent',
               border: 'none',
@@ -220,7 +220,7 @@ export default function Sidebar({
         title={
           systemVersion?.update_available
             ? `Update available: v${systemVersion.latest_version}. Click to open Settings & view update instructions.`
-            : `InstaSave v${systemVersion?.version || '1.0.0'} (Up to date). Click to view in Settings.`
+            : `ZenGram v${systemVersion?.version || '1.0.0'} (Up to date). Click to view in Settings.`
         }
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>

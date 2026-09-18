@@ -28,7 +28,7 @@ export default function App() {
   const [showSessionKey, setShowSessionKey] = useState(false)
   const [sessionSaveStatus, setSessionSaveStatus] = useState(null)
   const [configSaveStatus, setConfigSaveStatus] = useState(null)
-  const [downloadDirInput, setDownloadDirInput] = useState('/home/psychlone/Downloads/InstaSave')
+  const [downloadDirInput, setDownloadDirInput] = useState('~/Downloads/ZenGram')
   const [rateLimitDelayInput, setRateLimitDelayInput] = useState(3.0)
   const [syncIntervalInput, setSyncIntervalInput] = useState(6)
   const [maxPostsInput, setMaxPostsInput] = useState(0)

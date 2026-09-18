@@ -1,6 +1,6 @@
-# InstaSave - System Requirements & Dependencies Log
+# ZenGram - System Requirements & Dependencies Log
 
-This document tracks all system, backend, and frontend dependencies required to run **InstaSave** across **Fedora Workstation / Server**, **Debian / Ubuntu / Proxmox LXC containers**, and other Linux distributions.
+This document tracks all system, backend, and frontend dependencies required to run **ZenGram** across **Fedora Workstation / Server**, **Debian / Ubuntu / Proxmox LXC containers**, and other Linux distributions.
 
 ---
 
@@ -37,8 +37,8 @@ When running inside a headless Proxmox LXC container or server:
 3. **Headless Installation (No GUI)**:
    - The installer automatically detects if a desktop environment is missing and skips `.desktop` desktop shortcut creation without error.
 4. **Systemd Services (Root vs User)**:
-   - In Proxmox LXC containers running as `root`, the service is installed as a system-level unit (`/etc/systemd/system/instasave.service`).
-   - On desktop workstations running as regular users, the service is installed as a user unit (`~/.config/systemd/user/instasave.service`).
+   - In Proxmox LXC containers running as `root`, the service is installed as a system-level unit (`/etc/systemd/system/zengram.service`).
+   - On desktop workstations running as regular users, the service is installed as a user unit (`~/.config/systemd/user/zengram.service`).
 
 ---
 
@@ -73,7 +73,7 @@ When running inside a headless Proxmox LXC container or server:
 
 ## 6. Version Tracking & Upgrades
 
-InstaSave includes a built-in **Version Tracker**:
+ZenGram includes a built-in **Version Tracker**:
 - Query current version and commit status via `GET /api/v1/system/version`.
 - Trigger live upstream checks via `POST /api/v1/system/check-update`.
 - Upgrade in place using `./install.sh --update`.
