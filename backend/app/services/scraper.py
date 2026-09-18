@@ -277,8 +277,8 @@ class InstagramScraperEngine:
 
                 is_uncapped = (limit <= 0)
                 effective_limit = 999999 if is_uncapped else limit
-                max_scrolls = 600 if is_uncapped else max(50, limit // 3)
-                max_empty_cycles = 6 if is_uncapped else 3
+                max_scrolls = 600 if is_uncapped else max(60, (limit // 6) + 20)
+                max_empty_cycles = 8 if is_uncapped else 6
 
                 urls_to_visit = [f"https://www.instagram.com/{username}/", f"https://www.instagram.com/{username}/reels/"]
                 for page_url in urls_to_visit:
@@ -294,85 +294,77 @@ class InstagramScraperEngine:
                                         progress_callback(f"Switching to reels tab for @{username}...")
                                 except Exception:
                                     pass
-                            await page.goto(page_url, wait_until="domcontentloaded", timeout=10000)
-                            await page.wait_for_timeout(800)
+                            await page.goto(page_url, wait_until="domcontentloaded", timeout=15000)
+                            await page.wait_for_timeout(1200)
                             no_new_cycles = 0
                     except Exception:
                         pass
 
                     for i in range(max_scrolls):
-                        post_links = await page.query_selector_all('a[href*="/p/"], a[href*="/reel/"], a[href*="/reels/"], a[href*="/tv/"]')
-                        new_found_in_cycle = 0
-                        for a in post_links:
-                            href = await a.get_attribute('href')
-                            if not href:
-                                continue
-                            
-                            parts = [p for p in href.strip('/').split('/') if p]
-                            shortcode = None
-                            media_type = "IMAGE"
+                        batch = await page.evaluate(r'''() => {
+                            const results = [];
+                            const links = Array.from(document.querySelectorAll('a[href*="/p/"], a[href*="/reel/"], a[href*="/reels/"], a[href*="/tv/"]'));
+                            for (const a of links) {
+                                const href = a.getAttribute('href') || '';
+                                const parts = href.replace(/^\/+|\/+$/g, '').split('/');
+                                let shortcode = null;
+                                let mediaType = 'IMAGE';
+                                for (const key of ['reel', 'reels', 'tv', 'p']) {
+                                    const idx = parts.indexOf(key);
+                                    if (idx !== -1 && idx + 1 < parts.length) {
+                                        shortcode = parts[idx + 1];
+                                        if (['reel', 'reels', 'tv'].includes(key)) mediaType = 'VIDEO';
+                                        break;
+                                    }
+                                }
+                                if (!shortcode) continue;
+                                
+                                const img = a.querySelector('img');
+                                let src = img ? (img.src || img.getAttribute('src')) : null;
+                                if (!src && img && img.getAttribute('srcset')) {
+                                    src = img.getAttribute('srcset').split(',').pop().trim().split(' ')[0];
+                                }
+                                const alt = img ? (img.getAttribute('alt') || '') : '';
+                                
+                                if (mediaType !== 'VIDEO') {
+                                    const text = ((a.innerText || '') + ' ' + (a.innerHTML || '')).toLowerCase();
+                                    const aria = Array.from(a.querySelectorAll('[aria-label]')).map(el => el.getAttribute('aria-label') || '').join(' ').toLowerCase();
+                                    if (text.includes('carousel') || text.includes('sidecar') || text.includes('multiple') || aria.includes('carousel') || aria.includes('photos')) {
+                                        mediaType = 'CAROUSEL';
+                                    } else if (text.includes('video') || text.includes('reel') || text.includes('clip') || aria.includes('video') || aria.includes('reel')) {
+                                        mediaType = 'VIDEO';
+                                    }
+                                }
+                                
+                                results.push({
+                                    shortcode: shortcode,
+                                    media_type: mediaType,
+                                    display_url: src || ('https://www.instagram.com/p/' + shortcode + '/media/?size=l'),
+                                    caption: alt || ('Media post ' + shortcode)
+                                });
+                            }
+                            return results;
+                        }''')
 
-                            for key in ('reel', 'reels', 'tv', 'p'):
-                                if key in parts:
-                                    idx = parts.index(key)
-                                    if idx + 1 < len(parts):
-                                        shortcode = parts[idx + 1]
-                                        if key in ('reel', 'reels', 'tv'):
-                                            media_type = "VIDEO"
-                                        break
-                            
-                            if not shortcode:
-                                continue
-                            
-                            if shortcode in seen_codes:
-                                continue
-                            seen_codes.add(shortcode)
-                            new_found_in_cycle += 1
-                            
-                            img_elem = await a.query_selector('img')
-                            src = await img_elem.get_attribute('src') if img_elem else None
-                            if not src and img_elem:
-                                srcset = await img_elem.get_attribute('srcset')
-                                if srcset:
-                                    src = srcset.split(',')[-1].strip().split(' ')[0]
-                            if not src:
-                                vid_elem = await a.query_selector('video')
-                                if vid_elem:
-                                    src = await vid_elem.get_attribute('poster')
-                            if not src:
-                                src = f"https://www.instagram.com/p/{shortcode}/media/?size=l"
-                            alt = await img_elem.get_attribute('alt') if img_elem else ''
-                            
-                            if media_type != "VIDEO":
-                                try:
-                                    detected_type = await a.evaluate("""node => {
-                                        const text = (node.innerText || '') + ' ' + (node.innerHTML || '');
-                                        const aria = Array.from(node.querySelectorAll('[aria-label]')).map(el => el.getAttribute('aria-label') || '').join(' ');
-                                        const titles = Array.from(node.querySelectorAll('title')).map(el => el.textContent || '').join(' ');
-                                        const imgAlt = Array.from(node.querySelectorAll('img')).map(el => el.getAttribute('alt') || '').join(' ');
-                                        const combined = (text + ' ' + aria + ' ' + titles + ' ' + imgAlt).toLowerCase();
-                                        if (combined.includes('carousel') || combined.includes('sidecar') || combined.includes('multiple') || combined.includes('photo carousel') || combined.includes('photos')) return 'CAROUSEL';
-                                        if (combined.includes('video') || combined.includes('reel') || combined.includes('clip') || combined.includes('audio') || combined.includes('watch') || combined.includes('play')) return 'VIDEO';
-                                        return null;
-                                    }""")
-                                    if detected_type:
-                                        media_type = detected_type
-                                except Exception:
-                                    pass
-                            
-                            posts.append({
-                                "post_id": f"ig_{shortcode}",
-                                "shortcode": shortcode,
-                                "username": username,
-                                "media_type": media_type,
-                                "display_url": src,
-                                "thumbnail_url": src,
-                                "video_url": None,
-                                "caption": alt or f"Media post {shortcode}",
-                                "likes_count": 0,
-                                "comments_count": 0,
-                                "taken_at": extract_timestamp_from_shortcode(shortcode) or datetime.datetime.utcnow()
-                            })
+                        new_found_in_cycle = 0
+                        for item in batch:
+                            code = item['shortcode']
+                            if code not in seen_codes:
+                                seen_codes.add(code)
+                                new_found_in_cycle += 1
+                                posts.append({
+                                    "post_id": f"ig_{code}",
+                                    "shortcode": code,
+                                    "username": username,
+                                    "media_type": item['media_type'],
+                                    "display_url": item['display_url'],
+                                    "thumbnail_url": item['display_url'],
+                                    "video_url": None,
+                                    "caption": item['caption'],
+                                    "likes_count": 0,
+                                    "comments_count": 0,
+                                    "taken_at": extract_timestamp_from_shortcode(code) or datetime.datetime.utcnow()
+                                })
 
                         if new_found_in_cycle > 0 and progress_callback:
                             if len(posts) % 15 == 0 or len(posts) <= 30:
@@ -395,8 +387,11 @@ class InstagramScraperEngine:
                         else:
                             no_new_cycles = 0
 
+                        # Multi-action deep scroll: mouse wheel + page down + scrollHeight
+                        await page.mouse.wheel(0, 3000)
+                        await page.keyboard.press('PageDown')
                         await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-                        await page.wait_for_timeout(800)
+                        await page.wait_for_timeout(1400)
 
                 await browser.close()
                 return profile_pic, posts
