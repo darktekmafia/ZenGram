@@ -2,6 +2,7 @@ import asyncio
 import datetime
 import logging
 import os
+import httpx
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
