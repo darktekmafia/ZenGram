@@ -242,6 +242,7 @@ async def proxy_image(
 
     async with httpx.AsyncClient(timeout=15.0, follow_redirects=False, trust_env=False, verify=True) as client:
         current_pin = pin_info
+        current_logical_url = target_url
         max_redirects = 3
         res = None
 
@@ -266,8 +267,8 @@ async def proxy_image(
                 location = res.headers.get("Location")
                 if not location:
                     break
-                next_url = urllib.parse.urljoin(target_url, location)
-                current_pin = _validate_and_pin_proxy_url(next_url)
+                current_logical_url = urllib.parse.urljoin(current_logical_url, location)
+                current_pin = _validate_and_pin_proxy_url(current_logical_url)
                 if not current_pin:
                     raise HTTPException(status_code=400, detail="Redirect destination is not permitted by image proxy policy.")
                 continue

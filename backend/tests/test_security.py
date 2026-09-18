@@ -262,6 +262,24 @@ async def test_security_hardening():
                 assert r1 == "unencrypted_alpha", f"Expected rollback to leave r1 unencrypted, but got: {r1}"
                 assert r2 == "unencrypted_beta", f"Expected rollback to leave r2 unencrypted, but got: {r2}"
 
+            # 18. Verify Multi-Hop Relative Redirect Path Resolution
+            import urllib.parse
+            base_url = "https://scontent.cdninstagram.com/v/t51/initial.jpg"
+            hop1_loc = "sub/redirect1.jpg"
+            hop1_url = urllib.parse.urljoin(base_url, hop1_loc)
+            assert hop1_url == "https://scontent.cdninstagram.com/v/t51/sub/redirect1.jpg"
+            hop2_loc = "../final.jpg"
+            hop2_url = urllib.parse.urljoin(hop1_url, hop2_loc)
+            assert hop2_url == "https://scontent.cdninstagram.com/v/t51/final.jpg", f"Expected proper relative resolution against hop1_url, got: {hop2_url}"
+
+            # 19. Verify End-to-End Pinned Proxy Request
+            # When authenticated, requesting an allowed public resource succeeds through proxy
+            client.cookies.set("zengram_token", token)
+            proxy_res = await client.get("/api/v1/proxy/image?url=https://www.instagram.com/static/images/ico/favicon.ico")
+            assert proxy_res.status_code == 200, f"Expected 200 for proxy_res, got {proxy_res.status_code}: {proxy_res.text}"
+            assert len(proxy_res.content) > 100
+            assert "image/" in proxy_res.headers.get("content-type", "")
+
     finally:
         await test_engine.dispose()
         if os.path.exists(temp_db_path):

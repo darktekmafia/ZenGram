@@ -82,10 +82,11 @@ async def init_db():
                         decrypt_secret(cookie_val, raise_on_error=True)
         except Exception as e:
             import logging
-            logging.getLogger("zengram.database").critical(f"FATAL: Database credential verification or migration failed: {e}")
+            logging.getLogger("zengram.database").critical(
+                "FATAL: Database credential verification or migration failed. Check secret key configuration and directory permissions."
+            )
             raise RuntimeError(
-                f"Database startup failed: Unable to decrypt or migrate stored credentials. "
-                f"Please ensure ~/.config/zengram/jwt_secret.key matches your original installation key: {e}"
+                "Database startup failed: Unable to verify or migrate stored credentials. Please ensure your secret key configuration matches the database."
             ) from e
 
     # Restrict SQLite database and WAL files to owner-only read/write (0600)
