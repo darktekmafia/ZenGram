@@ -244,7 +244,17 @@ async def get_current_session(db: AsyncSession = Depends(get_db)):
                 from backend.app.services.scraper import InstagramScraperEngine
                 scraper = InstagramScraperEngine(session_cookie=session.session_cookie)
                 
-                # If username is known, get direct user profile
+                # 1. Probe logged-in user profile directly from session context
+                detected = await scraper.get_logged_in_user_profile()
+                if detected and detected.get("profile_pic_url"):
+                    if detected.get("username") and session.username in ("admin", "", None):
+                        session.username = detected["username"]
+                    session.profile_pic_url = detected["profile_pic_url"]
+                    await db.commit()
+                    await db.refresh(session)
+                    return session
+
+                # 2. Fallback to public user profile lookup
                 if session.username and session.username != "admin":
                     prof_info = await scraper.get_user_profile(session.username)
                     if prof_info and prof_info.get("profile_pic_url"):
@@ -252,16 +262,6 @@ async def get_current_session(db: AsyncSession = Depends(get_db)):
                         await db.commit()
                         await db.refresh(session)
                         return session
-
-                # Otherwise probe logged in user session
-                detected = await scraper.get_logged_in_user_profile()
-                if detected:
-                    if detected.get("username") and session.username in ("admin", "", None):
-                        session.username = detected["username"]
-                    if detected.get("profile_pic_url"):
-                        session.profile_pic_url = detected["profile_pic_url"]
-                    await db.commit()
-                    await db.refresh(session)
             except Exception as e:
                 logger.warning(f"Error auto-discovering profile avatar on session retrieval: {e}")
     return session
@@ -277,6 +277,17 @@ async def refresh_session_avatar(db: AsyncSession = Depends(get_db)):
     from backend.app.services.scraper import InstagramScraperEngine
     scraper = InstagramScraperEngine(session_cookie=session.session_cookie)
     
+    # 1. Try detected logged in profile first
+    detected = await scraper.get_logged_in_user_profile()
+    if detected and detected.get("profile_pic_url"):
+        if detected.get("username") and session.username in ("admin", "", None):
+            session.username = detected["username"]
+        session.profile_pic_url = detected["profile_pic_url"]
+        await db.commit()
+        await db.refresh(session)
+        return session
+
+    # 2. Fallback to username profile lookup
     if session.username and session.username != "admin":
         prof = await scraper.get_user_profile(session.username)
         if prof and prof.get("profile_pic_url"):
@@ -285,16 +296,6 @@ async def refresh_session_avatar(db: AsyncSession = Depends(get_db)):
             await db.refresh(session)
             return session
             
-    detected = await scraper.get_logged_in_user_profile()
-    if detected:
-        if detected.get("username") and session.username in ("admin", "", None):
-            session.username = detected["username"]
-        if detected.get("profile_pic_url"):
-            session.profile_pic_url = detected["profile_pic_url"]
-        await db.commit()
-        await db.refresh(session)
-        return session
-        
     return session
 
 
@@ -311,15 +312,16 @@ async def create_session(data: UserSessionCreate, db: AsyncSession = Depends(get
             from backend.app.services.scraper import InstagramScraperEngine
             scraper = InstagramScraperEngine(session_cookie=clean_cookie)
             
-            # If username is empty or admin, auto-discover from cookie
-            if not clean_username or clean_username.lower() == "admin":
-                detected = await scraper.get_logged_in_user_profile()
-                if detected and detected.get("username"):
+            # Always try get_logged_in_user_profile FIRST
+            detected = await scraper.get_logged_in_user_profile()
+            if detected:
+                if detected.get("username") and (not clean_username or clean_username.lower() == "admin"):
                     clean_username = detected["username"]
-                    profile_pic = detected.get("profile_pic_url")
+                if detected.get("profile_pic_url"):
+                    profile_pic = detected["profile_pic_url"]
 
-            # If username is set and profile pic not yet obtained, fetch profile
-            if clean_username and clean_username.lower() != "admin" and not profile_pic:
+            # If still no profile_pic and username is known, fallback to user profile lookup
+            if not profile_pic and clean_username and clean_username.lower() != "admin":
                 prof_info = await scraper.get_user_profile(clean_username)
                 if prof_info and prof_info.get("profile_pic_url"):
                     profile_pic = prof_info["profile_pic_url"]
