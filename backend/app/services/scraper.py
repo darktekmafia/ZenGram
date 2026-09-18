@@ -139,18 +139,25 @@ class InstagramScraperEngine:
     def __init__(self, session_cookie: Optional[str] = None):
         self.session_cookie = session_cookie
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
             "Accept": "*/*",
-            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Language": "en-US,en;q=0.9",
             "X-IG-App-ID": "936619743392459",
             "X-Requested-With": "XMLHttpRequest",
+            "Referer": "https://www.instagram.com/",
         }
         if session_cookie:
             cookies_dict = parse_instagram_cookies(session_cookie)
-            cookie_parts = [f"{k}={v}" for k, v in cookies_dict.items()]
-            if "sessionid" in cookies_dict and not any(k == "sessionid" for k in cookies_dict):
-                cookie_parts.append(f"sessionid={cookies_dict['sessionid']}")
-            self.headers["Cookie"] = "; ".join(cookie_parts) if cookie_parts else f"sessionid={session_cookie};"
+            user_id = extract_user_id_from_cookies(cookies_dict, session_cookie)
+            cookie_parts = []
+            if user_id:
+                cookie_parts.append(f"ds_user_id={user_id}")
+            if session_cookie:
+                cookie_parts.append(f"sessionid={session_cookie.strip()}")
+            for k, v in cookies_dict.items():
+                if k not in ("ds_user_id", "sessionid"):
+                    cookie_parts.append(f"{k}={v}")
+            self.headers["Cookie"] = "; ".join(cookie_parts)
 
     async def _async_delay(self, min_sec: float = 1.5, max_sec: float = 3.5):
         delay = random.uniform(min_sec, max_sec)
@@ -748,48 +755,62 @@ class InstagramScraperEngine:
 
         user_id = extract_user_id_from_cookies(cookies_dict, self.session_cookie)
         
-        cookie_header_parts = [f"{k}={v}" for k, v in cookies_dict.items()]
-        if "sessionid" in cookies_dict and not any(k == "sessionid" for k in cookies_dict):
-            cookie_header_parts.append(f"sessionid={cookies_dict['sessionid']}")
-        cookie_header = "; ".join(cookie_header_parts) if cookie_header_parts else f"sessionid={self.session_cookie};"
-        if "sessionid=" not in cookie_header and self.session_cookie:
-            cookie_header = f"sessionid={self.session_cookie}; {cookie_header}"
+        cookie_parts = []
+        if user_id:
+            cookie_parts.append(f"ds_user_id={user_id}")
+        if self.session_cookie:
+            cookie_parts.append(f"sessionid={self.session_cookie.strip()}")
+        for k, v in cookies_dict.items():
+            if k not in ("ds_user_id", "sessionid"):
+                cookie_parts.append(f"{k}={v}")
+        cookie_header = "; ".join(cookie_parts)
 
         followed = []
 
-        # 1. Try fast direct HTTP API request with httpx first
+        # 1. Try fast direct HTTP API request with httpx first (with pagination)
         if user_id:
             try:
-                url = f"https://www.instagram.com/api/v1/friendships/{user_id}/following/?count=200"
-                async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-                    resp = await client.get(
-                        url,
-                        headers={
-                            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
-                            "Accept": "*/*",
-                            "Accept-Language": "en-US,en;q=0.5",
-                            "X-IG-App-ID": "936619743392459",
-                            "X-Requested-With": "XMLHttpRequest",
-                            "Cookie": cookie_header,
-                            "Referer": "https://www.instagram.com/",
-                        }
-                    )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        users = data.get("users", [])
-                        for u in users:
-                            handle = u.get("username", "").strip().rstrip("/").lstrip("@")
-                            if handle:
-                                followed.append({
-                                    "username": handle,
-                                    "ig_user_id": str(u.get("pk") or u.get("id")),
-                                    "full_name": u.get("full_name") or handle,
-                                    "profile_pic_url": u.get("profile_pic_url"),
-                                    "is_unfollowed_track": False
-                                })
-                        if followed:
-                            logger.info(f"Successfully fetched {len(followed)} followed accounts via direct API")
-                            return followed
+                next_max_id = None
+                for _ in range(25):  # up to 5000 followed accounts
+                    url = f"https://www.instagram.com/api/v1/friendships/{user_id}/following/?count=200"
+                    if next_max_id:
+                        url += f"&max_id={next_max_id}"
+                    
+                    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                        resp = await client.get(
+                            url,
+                            headers={
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+                                "Accept": "*/*",
+                                "Accept-Language": "en-US,en;q=0.9",
+                                "X-IG-App-ID": "936619743392459",
+                                "X-Requested-With": "XMLHttpRequest",
+                                "Cookie": cookie_header,
+                                "Referer": "https://www.instagram.com/",
+                            }
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            users = data.get("users", [])
+                            for u in users:
+                                handle = u.get("username", "").strip().rstrip("/").lstrip("@")
+                                if handle and not any(x["username"].lower() == handle.lower() for x in followed):
+                                    followed.append({
+                                        "username": handle,
+                                        "ig_user_id": str(u.get("pk") or u.get("id")),
+                                        "full_name": u.get("full_name") or handle,
+                                        "profile_pic_url": u.get("profile_pic_url"),
+                                        "is_unfollowed_track": False
+                                    })
+                            next_max_id = data.get("next_max_id")
+                            if not next_max_id or not users:
+                                break
+                        else:
+                            logger.warning(f"Direct following API returned status {resp.status_code}")
+                            break
+                if followed:
+                    logger.info(f"Successfully fetched {len(followed)} followed accounts via direct API")
+                    return followed
             except Exception as e:
                 logger.warning(f"Direct httpx following API request failed, falling back to Playwright: {e}")
 
@@ -803,61 +824,77 @@ class InstagramScraperEngine:
                 )
                 context = await browser.new_context(
                     viewport={"width": 1280, "height": 800},
-                    user_agent="Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
                 )
                 
                 playwright_cookies = []
-                for k, v in cookies_dict.items():
+                if user_id:
                     playwright_cookies.append({
-                        'name': k,
-                        'value': v,
+                        'name': 'ds_user_id',
+                        'value': str(user_id),
                         'domain': '.instagram.com',
                         'path': '/'
                     })
-                if not any(c['name'] == 'sessionid' for c in playwright_cookies) and self.session_cookie:
+                if self.session_cookie:
                     playwright_cookies.append({
                         'name': 'sessionid',
                         'value': self.session_cookie.strip(),
                         'domain': '.instagram.com',
                         'path': '/'
                     })
+                for k, v in cookies_dict.items():
+                    if k not in ('ds_user_id', 'sessionid'):
+                        playwright_cookies.append({
+                            'name': k,
+                            'value': str(v),
+                            'domain': '.instagram.com',
+                            'path': '/'
+                        })
                 await context.add_cookies(playwright_cookies)
                 
                 page = await context.new_page()
 
-                # If user_id wasn't known, navigate to Instagram home to resolve it
-                if not user_id:
-                    try:
-                        await page.goto("https://www.instagram.com/", wait_until="domcontentloaded", timeout=15000)
-                        await page.wait_for_timeout(1500)
-                        ctx_cookies = await context.cookies()
-                        for c in ctx_cookies:
-                            if c['name'] == 'ds_user_id' and c['value'].isdigit():
-                                user_id = c['value']
-                                break
-                    except Exception as e:
-                        logger.warning(f"Error navigating to home for user ID discovery: {e}")
+                # Navigate to home first to initialize session and extract CSRF token
+                try:
+                    await page.goto("https://www.instagram.com/", wait_until="domcontentloaded", timeout=15000)
+                    await page.wait_for_timeout(1500)
+                    ctx_cookies = await context.cookies()
+                    for c in ctx_cookies:
+                        if c['name'] == 'ds_user_id' and c['value'].isdigit():
+                            user_id = c['value']
+                            break
+                except Exception as e:
+                    logger.warning(f"Error navigating to home for user ID discovery: {e}")
 
                 if user_id:
-                    url = f"https://www.instagram.com/api/v1/friendships/{user_id}/following/?count=200"
-                    response = await page.request.get(url, headers={
-                        'X-IG-App-ID': '936619743392459',
-                        'X-Requested-With': 'XMLHttpRequest',
-                        'Referer': 'https://www.instagram.com/'
-                    })
-                    if response.status == 200:
-                        data = await response.json()
-                        users = data.get("users", [])
-                        for u in users:
-                            handle = u.get("username", "").strip().rstrip("/").lstrip("@")
-                            if handle:
-                                followed.append({
-                                    "username": handle,
-                                    "ig_user_id": str(u.get("pk") or u.get("id")),
-                                    "full_name": u.get("full_name") or handle,
-                                    "profile_pic_url": u.get("profile_pic_url"),
-                                    "is_unfollowed_track": False
-                                })
+                    next_max_id = None
+                    for _ in range(25):
+                        url = f"https://www.instagram.com/api/v1/friendships/{user_id}/following/?count=200"
+                        if next_max_id:
+                            url += f"&max_id={next_max_id}"
+                        response = await page.request.get(url, headers={
+                            'X-IG-App-ID': '936619743392459',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'Referer': 'https://www.instagram.com/'
+                        })
+                        if response.status == 200:
+                            data = await response.json()
+                            users = data.get("users", [])
+                            for u in users:
+                                handle = u.get("username", "").strip().rstrip("/").lstrip("@")
+                                if handle and not any(x["username"].lower() == handle.lower() for x in followed):
+                                    followed.append({
+                                        "username": handle,
+                                        "ig_user_id": str(u.get("pk") or u.get("id")),
+                                        "full_name": u.get("full_name") or handle,
+                                        "profile_pic_url": u.get("profile_pic_url"),
+                                        "is_unfollowed_track": False
+                                    })
+                            next_max_id = data.get("next_max_id")
+                            if not next_max_id or not users:
+                                break
+                        else:
+                            break
 
                 await browser.close()
         except Exception as e:
