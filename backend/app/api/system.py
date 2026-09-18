@@ -257,9 +257,6 @@ def get_distro_info() -> str:
 
 
 # Global state for manual/simulated update testing
-_simulated_update_state: Optional[Dict[str, Any]] = None
-
-
 # -------------------------------------------------------------
 # API Endpoints
 # -------------------------------------------------------------
@@ -271,24 +268,6 @@ async def get_version_info():
     distro = get_distro_info()
     hostname = platform.node()
     py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-    
-    if _simulated_update_state:
-        return VersionInfoResponse(
-            version=settings.VERSION,
-            commit_hash=git_info["commit_hash"],
-            commit_date=git_info["commit_date"],
-            commit_message=git_info["commit_message"],
-            branch=git_info["branch"],
-            is_git=git_info["is_git"],
-            update_available=True,
-            latest_version=_simulated_update_state.get("latest_version", "1.1.0"),
-            latest_commit=_simulated_update_state.get("latest_commit", "7f8b90a"),
-            behind_by=_simulated_update_state.get("behind_by", 2),
-            distro_name=distro,
-            hostname=hostname,
-            python_version=py_ver,
-            update_status_text=_simulated_update_state.get("status_text", "Update Available (v1.1.0)")
-        )
 
     return VersionInfoResponse(
         version=settings.VERSION,
@@ -309,26 +288,14 @@ async def get_version_info():
 
 
 @router.post("/check-update", response_model=VersionInfoResponse)
-async def check_for_updates(simulate_update: Optional[bool] = Query(None)):
+async def check_for_updates():
     """Fetch upstream git origin or release feeds to check for new updates."""
-    global _simulated_update_state
-
-    if simulate_update is True:
-        _simulated_update_state = {
-            "latest_version": "1.1.0",
-            "latest_commit": "7f8b90a",
-            "behind_by": 3,
-            "status_text": "New Version Available: v1.1.0 (3 new commits)"
-        }
-    elif simulate_update is False:
-        _simulated_update_state = None
-
     base_dir = settings.BASE_DIR
     git_info = get_git_info()
     
-    if git_info["is_git"] and not _simulated_update_state:
+    if git_info["is_git"]:
         try:
-            fetch_res = subprocess.run(
+            subprocess.run(
                 ["git", "fetch", "--dry-run", "origin"],
                 cwd=str(base_dir),
                 stdout=subprocess.PIPE,

@@ -278,22 +278,19 @@ export default function App() {
   }
 
   // Live Check for Upstream Updates
-  const handleCheckUpdate = async (simulate = null) => {
+  const handleCheckUpdate = async () => {
     setCheckingUpdate(true)
     try {
-      let url = '/api/v1/system/check-update'
-      if (simulate !== null) {
-        url += `?simulate_update=${simulate}`
-      }
-      const res = await fetch(url, { method: 'POST' })
+      const res = await fetch('/api/v1/system/check-update', { method: 'POST' })
       if (res.ok) {
         const data = await res.json()
         setSystemVersion(data)
       }
     } catch (err) {
       console.error('Error checking updates:', err)
+    } finally {
+      setCheckingUpdate(false)
     }
-    setCheckingUpdate(false)
   }
 
   // Fetch Master Auth Status (HttpOnly Cookie & Setup Check)
@@ -2591,23 +2588,6 @@ export default function App() {
                         onClick={() => setIsUpdateModalOpen(true)}
                       >
                         <span>View Release Details</span>
-                      </button>
-
-                      {/* Test update simulation toggle button for user testing */}
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        style={{
-                          fontSize: '0.78rem',
-                          padding: '6px 10px',
-                          color: systemVersion?.update_available ? '#f87171' : '#a78bfa',
-                          borderColor: systemVersion?.update_available ? 'rgba(239,68,68,0.3)' : 'rgba(167,139,250,0.3)'
-                        }}
-                        onClick={() => handleCheckUpdate(systemVersion?.update_available ? false : true)}
-                        title={systemVersion?.update_available ? 'Reset test update state' : 'Simulate a new update (v1.1.0) to test notification banner'}
-                      >
-                        <Sparkles size={13} />
-                        <span>{systemVersion?.update_available ? 'Reset Update Test' : 'Test Update Notification'}</span>
                       </button>
                     </div>
 
