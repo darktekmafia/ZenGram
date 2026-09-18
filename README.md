@@ -202,12 +202,19 @@ systemctl --user restart zengram.service
 
 ## 🧪 Running Security & Regression Tests
 
-ZenGram includes a comprehensive security and regression test suite covering authentication enforcement, credential redaction, SSRF/DNS rebinding defense, encryption-at-rest, and atomic database migrations:
+ZenGram includes a comprehensive automated test suite covering 20 security boundaries—including authentication enforcement, secret redaction, SSRF/DNS rebinding defense, AES-256 encryption-at-rest, key tampering detection, and atomic database migrations:
 
 ```bash
 source .venv/bin/activate
 python backend/tests/test_security.py
 ```
+
+> [!NOTE]
+> **Understanding Test Output**:
+> During execution, the test suite actively attacks the application with simulated corrupted payloads and key mismatches to verify fail-closed behavior. You will see two intentional `FATAL:` log lines as proof that the security detectors triggered properly. The test is successful when the final summary reads:
+> `All security, encryption-at-rest, atomic rollback, and DNS-pinning tests passed on disposable database!`
+>
+> 📖 For a detailed breakdown of all 20 test suites and what the outputs mean, see the [Security Tests Guide](SECURITY_TESTS_README.md).
 
 ---
 
