@@ -138,7 +138,7 @@ detect_and_install_deps() {
         echo "[*] Installing missing system packages: ${PKGS_TO_INSTALL[*]}"
         if [ "$PM" = "apt" ]; then
             $SUDO_PREFIX apt-get update -qq
-            DEBIAN_FRONTEND=noninteractive $SUDO_PREFIX apt-get install -y "${PKGS_TO_INSTALL[@]}"
+            DEBIAN_FRONTEND=noninteractive $SUDO_PREFIX apt-get install -y --no-install-recommends "${PKGS_TO_INSTALL[@]}"
         elif [ "$PM" = "dnf" ]; then
             $SUDO_PREFIX dnf install -y "${PKGS_TO_INSTALL[@]}"
         elif [ "$PM" = "pacman" ]; then
