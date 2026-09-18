@@ -56,34 +56,51 @@
 
 ## 🚀 Installation & Quick Start
 
-### 1. Automated Installation
+### 1. Clone the Repository
 
-Run the included installer script:
+Clone the official ZenGram repository to your machine or Proxmox LXC container:
 
+```bash
+git clone https://github.com/darktekmafia/ZenGram.git
+cd ZenGram
+```
+
+### 2. Run the Automated Installer
+
+Make the script executable and run the installer:
+
+**For Desktop Workstations (Fedora, Ubuntu, Debian, Arch):**
 ```bash
 chmod +x install.sh
 ./install.sh
 ```
 
-For headless servers or Proxmox LXC containers (skips desktop shortcuts):
+**For Headless Servers & Proxmox LXC Containers:**
 ```bash
+chmod +x install.sh
 ./install.sh --no-desktop
 ```
 
-The installer will:
-1. Detect distribution package manager (`dnf`, `apt`, `pacman`, `zypper`) and verify system dependencies.
-2. Initialize the Python virtual environment (`.venv`) and install dependencies.
-3. Install frontend packages and compile the production bundle (`frontend/dist/`).
-4. Register and enable the Systemd service (`zengram.service`).
-5. Install desktop launchers (if GUI environment is present).
+> [!TIP]
+> **Custom Host/Port Binding**: If you need to bind to a specific network interface or custom port:
+> ```bash
+> ./install.sh --host 0.0.0.0 --port 8484 --no-desktop
+> ```
 
-### 2. Accessing the Web UI
+The installer automatically:
+1. Detects your distribution package manager (`dnf`, `apt`, `pacman`, `zypper`) and installs required packages (Python 3, Node.js 20+, FFmpeg, SQLite3).
+2. Sets up the Python virtual environment (`.venv`) and installs backend dependencies.
+3. Installs frontend packages and compiles the optimized production Vite bundle (`frontend/dist/`).
+4. Registers, enables, and starts the systemd service (`zengram.service`).
+5. Generates desktop launchers & application menu shortcuts (on desktop environments).
 
-Open your browser and navigate to:
-```
-http://localhost:8484
-```
-*(Or your server/LXC container's IP on port 8484)*
+---
+
+### 3. Accessing the Web Interface
+
+Once installation finishes, open your browser:
+- **Local Machine**: [http://localhost:8484](http://localhost:8484)
+- **Remote Server / Proxmox LXC**: `http://<YOUR_SERVER_IP>:8484`
 
 ---
 
