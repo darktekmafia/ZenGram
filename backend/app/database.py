@@ -66,11 +66,15 @@ async def init_db():
 
         # Auto-add new settings columns if upgrading existing installation
         try:
-            await conn.execute(text("ALTER TABLE app_settings ADD COLUMN pagination_mode TEXT DEFAULT 'infinite';"))
+            await conn.execute(text("ALTER TABLE app_settings ADD COLUMN pagination_mode TEXT DEFAULT 'pages';"))
         except Exception:
             pass
         try:
             await conn.execute(text("ALTER TABLE app_settings ADD COLUMN page_size INTEGER DEFAULT 36;"))
+        except Exception:
+            pass
+        try:
+            await conn.execute(text("UPDATE app_settings SET pagination_mode = 'pages' WHERE pagination_mode IS NULL OR pagination_mode = '';"))
         except Exception:
             pass
 

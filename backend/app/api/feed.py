@@ -155,8 +155,13 @@ async def get_post_carousel_slides(
 ):
     """Retrieve or probe all slide items for a carousel or video post on demand."""
     clean_code = shortcode.strip().replace("ig_", "")
+    canonical_code = clean_code[:11] if len(clean_code) >= 11 else clean_code
     result = await db.execute(select(MediaItem).where(
-        (MediaItem.shortcode == clean_code) | (MediaItem.post_id == shortcode) | (MediaItem.post_id == f"ig_{clean_code}")
+        (MediaItem.shortcode == clean_code) | 
+        (MediaItem.shortcode == canonical_code) |
+        (MediaItem.post_id == shortcode) | 
+        (MediaItem.post_id == f"ig_{clean_code}") |
+        (MediaItem.post_id == f"ig_{canonical_code}")
     ))
     item = result.scalars().first()
     
@@ -204,13 +209,14 @@ async def get_post_carousel_slides(
     # 4. Probe Instagram on-demand for slide media
     from backend.app.models import UserSession
     from backend.app.services.downloader import MediaDownloader
+    from backend.app.auth_utils import decrypt_secret
     us_res = await db.execute(select(UserSession).where(UserSession.is_active == True))
     us = us_res.scalars().first()
-    cookie = us.session_cookie if us and us.session_cookie != "dummy_session_cookie" else None
+    cookie = decrypt_secret(us.session_cookie) if us and us.session_cookie != "dummy_session_cookie" else None
     
     downloader = MediaDownloader()
     extracted = await downloader.extract_media_urls(
-        shortcode=clean_code,
+        shortcode=canonical_code,
         display_url=item.display_url if item else None,
         video_url=item.video_url if item else None,
         media_type=item.media_type if item else None,

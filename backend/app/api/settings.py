@@ -22,19 +22,29 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
             max_posts_per_fetch=50,
             max_queue_limit=8,
             max_download_workers=2,
-            pagination_mode="infinite",
+            pagination_mode="pages",
             page_size=36
         )
         db.add(app_settings)
         await db.commit()
         await db.refresh(app_settings)
-    elif app_settings.download_directory and (app_settings.download_directory.endswith("/InstaSave") or app_settings.download_directory.endswith("\\InstaSave")):
-        # Auto-migrate legacy default directory name to ZenGram
-        suffix_len = 10
-        sep = "/" if "/" in app_settings.download_directory else "\\"
-        app_settings.download_directory = app_settings.download_directory[:-suffix_len] + f"{sep}ZenGram"
-        await db.commit()
-        await db.refresh(app_settings)
+    elif app_settings:
+        changed = False
+        if not app_settings.pagination_mode:
+            app_settings.pagination_mode = "pages"
+            changed = True
+        if not app_settings.page_size:
+            app_settings.page_size = 36
+            changed = True
+        if app_settings.download_directory and (app_settings.download_directory.endswith("/InstaSave") or app_settings.download_directory.endswith("\\InstaSave")):
+            # Auto-migrate legacy default directory name to ZenGram
+            suffix_len = 10
+            sep = "/" if "/" in app_settings.download_directory else "\\"
+            app_settings.download_directory = app_settings.download_directory[:-suffix_len] + f"{sep}ZenGram"
+            changed = True
+        if changed:
+            await db.commit()
+            await db.refresh(app_settings)
     return app_settings
 
 @router.post("", response_model=AppSettingsSchema)
@@ -45,14 +55,22 @@ async def update_settings(data: AppSettingsSchema, db: AsyncSession = Depends(ge
         app_settings = AppSettings(id=1)
         db.add(app_settings)
 
-    app_settings.download_directory = data.download_directory
-    app_settings.auto_sync_interval_hours = data.auto_sync_interval_hours
-    app_settings.rate_limit_delay_seconds = data.rate_limit_delay_seconds
-    app_settings.max_posts_per_fetch = data.max_posts_per_fetch
-    app_settings.max_queue_limit = data.max_queue_limit
-    app_settings.max_download_workers = data.max_download_workers
-    app_settings.pagination_mode = data.pagination_mode or "infinite"
-    app_settings.page_size = data.page_size or 36
+    if data.download_directory is not None:
+        app_settings.download_directory = data.download_directory
+    if data.auto_sync_interval_hours is not None:
+        app_settings.auto_sync_interval_hours = data.auto_sync_interval_hours
+    if data.rate_limit_delay_seconds is not None:
+        app_settings.rate_limit_delay_seconds = data.rate_limit_delay_seconds
+    if data.max_posts_per_fetch is not None:
+        app_settings.max_posts_per_fetch = data.max_posts_per_fetch
+    if data.max_queue_limit is not None:
+        app_settings.max_queue_limit = data.max_queue_limit
+    if data.max_download_workers is not None:
+        app_settings.max_download_workers = data.max_download_workers
+    if data.pagination_mode is not None:
+        app_settings.pagination_mode = data.pagination_mode
+    if data.page_size is not None:
+        app_settings.page_size = data.page_size
 
     await db.commit()
     await db.refresh(app_settings)

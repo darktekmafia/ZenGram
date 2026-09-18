@@ -792,6 +792,352 @@ class InstagramScraperEngine:
 
         return stories
 
+    async def get_user_highlights(self, username: str, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Fetch permanent Story Highlight albums for a user."""
+        rate_tracker.record_request()
+        await self._async_delay()
+
+        highlights = []
+        if not user_id or user_id.startswith("dummy") or user_id.startswith("ig_"):
+            prof = await self.get_user_profile(username)
+            if prof and prof.get("ig_user_id") and str(prof["ig_user_id"]).isdigit():
+                user_id = str(prof["ig_user_id"])
+
+        # 1. Direct REST API using highlights_tray
+        if user_id and str(user_id).isdigit():
+            url = f"https://www.instagram.com/api/v1/highlights/{user_id}/highlights_tray/"
+            req_headers = dict(self.headers)
+            if self.session_cookie and self.session_cookie != "dummy_session_cookie":
+                cookies_dict = parse_instagram_cookies(self.session_cookie)
+                cookie_parts = []
+                for k, v in cookies_dict.items():
+                    cookie_parts.append(f"{k}={v}")
+                if "sessionid" not in cookies_dict and self.session_cookie:
+                    cookie_parts.append(f"sessionid={self.session_cookie.strip()}")
+                req_headers["Cookie"] = "; ".join(cookie_parts)
+
+            async with httpx.AsyncClient(headers=req_headers, follow_redirects=True, timeout=15.0) as client:
+                try:
+                    resp = await client.get(url)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        tray = data.get("tray", [])
+                        for hl in tray:
+                            hl_id = str(hl.get("id"))
+                            title = hl.get("title") or "Highlights"
+                            media_count = hl.get("media_count", 0)
+                            cover_url = None
+                            cover_media = hl.get("cover_media", {})
+                            if "cropped_image_version" in cover_media:
+                                cover_url = cover_media["cropped_image_version"].get("url")
+                            elif "image_versions2" in cover_media:
+                                candidates = cover_media["image_versions2"].get("candidates", [])
+                                if candidates:
+                                    cover_url = candidates[0].get("url")
+
+                            highlights.append({
+                                "id": hl_id,
+                                "highlight_id": hl_id,
+                                "username": username,
+                                "title": title,
+                                "media_count": media_count,
+                                "cover_url": cover_url,
+                                "latest_reel_media": hl.get("latest_reel_media", 0),
+                            })
+                        if highlights:
+                            return highlights
+                except Exception as e:
+                    logger.warning(f"API highlights fetch error for {username}: {e}")
+
+        # 2. Playwright DOM extraction fallback
+        try:
+            from playwright.async_api import async_playwright
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=PLAYWRIGHT_CHROMIUM_ARGS
+                )
+                context = await browser.new_context(
+                    viewport={"width": 1280, "height": 800},
+                    user_agent=self.headers["User-Agent"]
+                )
+                if self.session_cookie and self.session_cookie != "dummy_session_cookie":
+                    cookies_dict = parse_instagram_cookies(self.session_cookie)
+                    for k, v in cookies_dict.items():
+                        await context.add_cookies([{
+                            'name': k,
+                            'value': v,
+                            'domain': '.instagram.com',
+                            'path': '/'
+                        }])
+                page = await context.new_page()
+                try:
+                    await page.goto(f"https://www.instagram.com/{username}/", wait_until="domcontentloaded", timeout=15000)
+                    await page.wait_for_timeout(2500)
+                except Exception:
+                    pass
+
+                hl_items = await page.evaluate(r'''() => {
+                    const results = [];
+                    const links = Array.from(document.querySelectorAll('a[href*="/stories/highlights/"]'));
+                    for (const a of links) {
+                        const href = a.getAttribute('href') || '';
+                        const match = href.match(/highlights\/([0-9a-zA-Z_:-]+)/);
+                        if (!match) continue;
+                        const hlId = match[1];
+                        const img = a.querySelector('img');
+                        const coverSrc = img ? (img.src || img.getAttribute('src')) : null;
+                        const titleEl = a.querySelector('span, div[role="button"], div');
+                        const title = (a.innerText || (titleEl ? titleEl.innerText : '') || 'Highlights').trim();
+                        results.push({
+                            id: 'highlight:' + hlId.replace('highlight:', ''),
+                            title: title || 'Highlights',
+                            cover_url: coverSrc
+                        });
+                    }
+                    return results;
+                }''')
+
+                for item in hl_items:
+                    highlights.append({
+                        "id": item["id"],
+                        "highlight_id": item["id"],
+                        "username": username,
+                        "title": item["title"],
+                        "media_count": 0,
+                        "cover_url": item.get("cover_url"),
+                        "latest_reel_media": 0
+                    })
+
+                await browser.close()
+        except Exception as e:
+            logger.warning(f"Playwright highlight fallback error for {username}: {e}")
+
+        return highlights
+
+    async def get_highlight_media(self, highlight_id: str, username: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Fetch all story slides (photos/videos) inside a permanent highlight album."""
+        rate_tracker.record_request()
+        await self._async_delay()
+
+        clean_id = highlight_id if highlight_id.startswith("highlight:") else f"highlight:{highlight_id}"
+        media_items = []
+
+        # 1. Direct REST API using reels_media
+        url = f"https://www.instagram.com/api/v1/feed/reels_media/?reel_ids={clean_id}"
+        req_headers = dict(self.headers)
+        if self.session_cookie and self.session_cookie != "dummy_session_cookie":
+            cookies_dict = parse_instagram_cookies(self.session_cookie)
+            cookie_parts = []
+            for k, v in cookies_dict.items():
+                cookie_parts.append(f"{k}={v}")
+            if "sessionid" not in cookies_dict and self.session_cookie:
+                cookie_parts.append(f"sessionid={self.session_cookie.strip()}")
+            req_headers["Cookie"] = "; ".join(cookie_parts)
+
+        async with httpx.AsyncClient(headers=req_headers, follow_redirects=True, timeout=15.0) as client:
+            try:
+                resp = await client.get(url)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    reels = data.get("reels", {}) or data.get("reels_media", [])
+                    reel_obj = {}
+                    if isinstance(reels, dict):
+                        reel_obj = reels.get(clean_id, {})
+                    elif isinstance(reels, list) and reels:
+                        reel_obj = reels[0]
+
+                    items = reel_obj.get("items", [])
+                    album_title = reel_obj.get("title", "Highlights")
+                    reel_user = reel_obj.get("user", {}).get("username", username or "")
+
+                    for idx, item in enumerate(items):
+                        pk = str(item.get("pk") or item.get("id"))
+                        is_video = item.get("media_type") == 2 or "video_versions" in item
+                        display_url = None
+                        if "image_versions2" in item:
+                            candidates = item["image_versions2"].get("candidates", [])
+                            if candidates:
+                                display_url = candidates[0].get("url")
+                        video_url = None
+                        if is_video and "video_versions" in item:
+                            v_versions = item.get("video_versions", [])
+                            if v_versions:
+                                video_url = v_versions[0].get("url")
+                        
+                        cap_text = ""
+                        if item.get("caption"):
+                            cap_text = item["caption"].get("text", "")
+
+                        taken_at = datetime.datetime.fromtimestamp(item.get("taken_at", 0)) if item.get("taken_at") else datetime.datetime.utcnow()
+
+                        media_items.append({
+                            "post_id": f"hl_{pk}",
+                            "shortcode": f"hl_{pk}",
+                            "username": reel_user or username or "instagram_user",
+                            "media_type": "VIDEO" if is_video else "IMAGE",
+                            "display_url": display_url or video_url,
+                            "thumbnail_url": display_url,
+                            "video_url": video_url,
+                            "caption": cap_text or f"Story from highlight album: {album_title}",
+                            "album_title": album_title,
+                            "highlight_id": clean_id,
+                            "slide_index": idx + 1,
+                            "total_slides": len(items),
+                            "likes_count": 0,
+                            "comments_count": 0,
+                            "taken_at": taken_at,
+                        })
+
+                    if media_items:
+                        return media_items
+            except Exception as e:
+                logger.warning(f"API reels_media fetch error for {clean_id}: {e}")
+
+        # 2. Playwright fallback with structured JSON script parsing for highlight reels playback
+        try:
+            from playwright.async_api import async_playwright
+            import json
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=PLAYWRIGHT_CHROMIUM_ARGS
+                )
+                context = await browser.new_context(
+                    viewport={"width": 1280, "height": 800},
+                    user_agent=self.headers["User-Agent"]
+                )
+                if self.session_cookie and self.session_cookie != "dummy_session_cookie":
+                    cookies_dict = parse_instagram_cookies(self.session_cookie)
+                    for k, v in cookies_dict.items():
+                        await context.add_cookies([{
+                            'name': k,
+                            'value': v,
+                            'domain': '.instagram.com',
+                            'path': '/'
+                        }])
+                page = await context.new_page()
+                raw_num = clean_id.replace("highlight:", "")
+                try:
+                    await page.goto(f"https://www.instagram.com/stories/highlights/{raw_num}/", wait_until="networkidle", timeout=15000)
+                    await page.wait_for_timeout(2000)
+                except Exception:
+                    pass
+
+                # 2a. Parse structured JSON from embedded scripts
+                scripts = await page.query_selector_all('script[type="application/json"]')
+                seen_pks = set()
+                album_title = "Highlights"
+
+                for s in scripts:
+                    try:
+                        txt = await s.inner_text()
+                        if raw_num in txt or "reels_media" in txt or "xdt_api__v1__feed__reels_media" in txt:
+                            data = json.loads(txt)
+                            def extract_reel_items(obj):
+                                nonlocal album_title
+                                if isinstance(obj, dict):
+                                    if "title" in obj and isinstance(obj["title"], str) and obj["title"]:
+                                        album_title = obj["title"]
+                                    if "items" in obj and isinstance(obj["items"], list):
+                                        for idx, itm in enumerate(obj["items"]):
+                                            pk = str(itm.get("pk") or itm.get("id") or "")
+                                            if not pk or pk in seen_pks:
+                                                continue
+                                            seen_pks.add(pk)
+                                            is_video = itm.get("media_type") == 2 or "video_versions" in itm
+                                            display_url = None
+                                            if "image_versions2" in itm:
+                                                candidates = itm["image_versions2"].get("candidates", [])
+                                                if candidates:
+                                                    display_url = candidates[0].get("url")
+                                            video_url = None
+                                            if is_video and "video_versions" in itm:
+                                                v_versions = itm.get("video_versions", [])
+                                                if v_versions:
+                                                    video_url = v_versions[0].get("url")
+                                            
+                                            taken_ts = itm.get("taken_at")
+                                            taken_dt = datetime.datetime.fromtimestamp(taken_ts) if taken_ts else datetime.datetime.utcnow()
+                                            
+                                            if display_url or video_url:
+                                                media_items.append({
+                                                    "post_id": f"hl_{pk}",
+                                                    "shortcode": itm.get("code") or f"hl_{pk}",
+                                                    "username": username or "instagram_user",
+                                                    "media_type": "VIDEO" if is_video else "IMAGE",
+                                                    "display_url": display_url or video_url,
+                                                    "thumbnail_url": display_url,
+                                                    "video_url": video_url,
+                                                    "caption": f"Story from highlight album: {album_title}",
+                                                    "album_title": album_title,
+                                                    "highlight_id": clean_id,
+                                                    "slide_index": idx + 1,
+                                                    "total_slides": len(obj["items"]),
+                                                    "likes_count": 0,
+                                                    "comments_count": 0,
+                                                    "taken_at": taken_dt,
+                                                })
+                                    for v in obj.values():
+                                        extract_reel_items(v)
+                                elif isinstance(obj, list):
+                                    for v in obj:
+                                        extract_reel_items(v)
+                            extract_reel_items(data)
+                    except Exception:
+                        pass
+
+                # 2b. Fallback to DOM elements if JSON produced nothing
+                if not media_items:
+                    story_imgs = await page.query_selector_all('div[role="dialog"] img, section img[srcset], img')
+                    story_videos = await page.query_selector_all('div[role="dialog"] video source, section video, video')
+
+                    for idx, img in enumerate(story_imgs):
+                        src = await img.get_attribute('src')
+                        if src and ('instagram' in src or 'fbcdn' in src) and 'profile' not in src and src not in [m['display_url'] for m in media_items]:
+                            media_items.append({
+                                "post_id": f"hl_{raw_num}_{idx}_{int(datetime.datetime.utcnow().timestamp())}",
+                                "shortcode": f"hl_{raw_num}_{idx}",
+                                "username": username or "instagram_user",
+                                "media_type": "IMAGE",
+                                "display_url": src,
+                                "thumbnail_url": src,
+                                "video_url": None,
+                                "caption": f"Highlight Story slide {idx + 1}",
+                                "album_title": "Highlights",
+                                "highlight_id": clean_id,
+                                "slide_index": idx + 1,
+                                "likes_count": 0,
+                                "comments_count": 0,
+                                "taken_at": datetime.datetime.utcnow()
+                            })
+
+                    for idx, v in enumerate(story_videos):
+                        v_src = await v.get_attribute('src')
+                        if v_src and ('instagram' in v_src or 'fbcdn' in v_src) and v_src not in [m.get('video_url') for m in media_items]:
+                            media_items.append({
+                                "post_id": f"hl_v_{raw_num}_{idx}_{int(datetime.datetime.utcnow().timestamp())}",
+                                "shortcode": f"hl_v_{raw_num}_{idx}",
+                                "username": username or "instagram_user",
+                                "media_type": "VIDEO",
+                                "display_url": v_src,
+                                "thumbnail_url": v_src,
+                                "video_url": v_src,
+                                "caption": f"Highlight Video Story slide {idx + 1}",
+                                "album_title": "Highlights",
+                                "highlight_id": clean_id,
+                                "slide_index": idx + 1,
+                                "likes_count": 0,
+                                "comments_count": 0,
+                                "taken_at": datetime.datetime.utcnow()
+                            })
+
+                await browser.close()
+        except Exception as e:
+            logger.warning(f"Playwright highlight media fallback error for {clean_id}: {e}")
+
+        return media_items
+
 
     async def get_followed_accounts(self, username: str = "") -> List[Dict[str, Any]]:
         """Fetch accounts followed by the logged-in user using session cookie."""

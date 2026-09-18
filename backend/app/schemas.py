@@ -123,14 +123,14 @@ class DownloadJobResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class AppSettingsSchema(BaseModel):
-    download_directory: str
-    auto_sync_interval_hours: int = 6
-    rate_limit_delay_seconds: float = 3.0
-    max_posts_per_fetch: int = 50
-    max_queue_limit: int = 8
-    max_download_workers: int = 2
-    pagination_mode: str = "infinite"
-    page_size: int = 36
+    download_directory: Optional[str] = None
+    auto_sync_interval_hours: Optional[int] = 6
+    rate_limit_delay_seconds: Optional[float] = 3.0
+    max_posts_per_fetch: Optional[int] = 50
+    max_queue_limit: Optional[int] = 8
+    max_download_workers: Optional[int] = 2
+    pagination_mode: Optional[str] = "pages"
+    page_size: Optional[int] = 36
 
     model_config = ConfigDict(from_attributes=True)
 

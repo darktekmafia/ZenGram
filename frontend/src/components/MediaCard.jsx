@@ -53,7 +53,7 @@ export default function MediaCard({ item, onSaveMedia, onDeleteMedia }) {
   }, [activeSlide])
 
   const handleCardMouseEnter = () => {
-    if (item.media_type !== 'STORY' && (!loadedSlides || loadedSlides.length <= 1) && !item.is_saved) {
+    if (isCarousel && item.media_type !== 'STORY' && (!loadedSlides || loadedSlides.length <= 1) && !item.is_saved) {
       fetchCarouselSlides()
     }
   }
@@ -180,6 +180,9 @@ export default function MediaCard({ item, onSaveMedia, onDeleteMedia }) {
     }
 
     if (!rawUrl) return null
+    if (rawUrl.startsWith('/api/v1/proxy/image') || rawUrl.startsWith('/api/v1/image-proxy')) {
+      return rawUrl
+    }
     if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
       if (rawUrl.includes('fbcdn.net') || rawUrl.includes('instagram.com') || rawUrl.includes('cdninstagram.com')) {
         return `/api/v1/proxy/image?url=${encodeURIComponent(rawUrl)}`
@@ -288,9 +291,10 @@ export default function MediaCard({ item, onSaveMedia, onDeleteMedia }) {
                 className="card-img"
                 referrerPolicy="no-referrer"
                 onError={(e) => {
-                  const fallback = getSlideSrc() || item.display_url
-                  if (fallback && !e.target.dataset.triedProxy) {
-                    e.target.dataset.triedProxy = 'true'
+                  if (e.target.dataset.triedFallback) return
+                  e.target.dataset.triedFallback = 'true'
+                  const fallback = item.display_url || item.thumbnail_url
+                  if (fallback && !fallback.startsWith('/api/v1/')) {
                     e.target.src = `/api/v1/proxy/image?url=${encodeURIComponent(fallback)}`
                   }
                 }}

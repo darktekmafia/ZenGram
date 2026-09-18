@@ -167,6 +167,7 @@ def _is_safe_image_proxy_url(url_str: str) -> bool:
 
 
 @app.get("/api/v1/proxy/image")
+@app.get("/api/v1/image-proxy")
 async def proxy_image(
     request: Request,
     url: Optional[str] = Query(None),
@@ -207,9 +208,17 @@ async def proxy_image(
     if not target_url:
         raise HTTPException(status_code=400, detail="Missing image URL parameter")
 
-    # Clean and unquote URL if needed
-    if "%3A" in target_url or "%2F" in target_url:
-        target_url = urllib.parse.unquote(target_url)
+    # Clean and unwrap nested proxy URL if client passed a proxy URL
+    for _ in range(5):
+        if "/api/v1/proxy/image" in target_url or "/api/v1/image-proxy" in target_url:
+            if "url=" in target_url:
+                target_url = urllib.parse.unquote(target_url.split("url=", 1)[1])
+            else:
+                break
+        elif "%3A" in target_url or "%2F" in target_url:
+            target_url = urllib.parse.unquote(target_url)
+        else:
+            break
 
     target_url = html.unescape(target_url).replace("&amp;", "&").strip().strip('"').strip("'")
 

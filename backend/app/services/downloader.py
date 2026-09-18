@@ -95,6 +95,8 @@ class MediaDownloader:
         """Fallback media extraction using Playwright browser DOM, metadata & structured JSON."""
         items = []
         seen_urls = set()
+        clean_code = (shortcode or "").strip().replace("ig_", "")
+        canonical_code = clean_code[:11] if len(clean_code) >= 11 else clean_code
         try:
             from playwright.async_api import async_playwright
             from backend.app.services.scraper import PLAYWRIGHT_CHROMIUM_ARGS, parse_instagram_cookies
@@ -126,17 +128,10 @@ class MediaDownloader:
                             }])
                     page = await context.new_page()
 
-                    urls_to_try = []
-                    if username:
-                        clean_u = username.strip().lstrip('@')
-                        urls_to_try.extend([
-                            f"https://www.instagram.com/{clean_u}/reel/{shortcode}/",
-                            f"https://www.instagram.com/{clean_u}/p/{shortcode}/",
-                        ])
-                    urls_to_try.extend([
-                        f"https://www.instagram.com/reel/{shortcode}/",
-                        f"https://www.instagram.com/p/{shortcode}/"
-                    ])
+                    urls_to_try = [
+                        f"https://www.instagram.com/p/{canonical_code}/",
+                        f"https://www.instagram.com/reel/{canonical_code}/"
+                    ]
 
                     for target_url in urls_to_try:
                         try:
@@ -154,56 +149,88 @@ class MediaDownloader:
                             seen_urls.add(v_src)
                             items.append({"url": v_src, "type": "VIDEO"})
 
-                    # 2. Check JSON scripts on page
+                    # 2. Check JSON scripts on page for carousel slides & videos with structured JSON parsing
                     scripts = await page.query_selector_all('script[type="application/json"]')
-                    import re, json
+                    import json
                     for s in scripts:
                         try:
                             txt = await s.inner_text()
-                            if 'video_url' in txt:
-                                matches = re.findall(r'"video_url"\s*:\s*"([^"]+)"', txt)
-                                for m in matches:
-                                    clean_v = m.encode('utf-8').decode('unicode_escape').replace('\\/', '/')
-                                    if clean_v.startswith('http') and "bytestart" not in clean_v and clean_v not in seen_urls:
-                                        seen_urls.add(clean_v)
-                                        items.append({"url": clean_v, "type": "VIDEO"})
+                            if 'carousel_media' in txt or 'edge_sidecar_to_children' in txt:
+                                data = json.loads(txt)
+                                def extract_from_json(obj):
+                                    if isinstance(obj, dict):
+                                        if 'carousel_media' in obj and isinstance(obj['carousel_media'], list):
+                                            for cm in obj['carousel_media']:
+                                                if cm.get('video_versions'):
+                                                    v_url = cm['video_versions'][0]['url']
+                                                    if v_url not in seen_urls:
+                                                        seen_urls.add(v_url)
+                                                        items.append({'url': v_url, 'type': 'VIDEO'})
+                                                elif cm.get('image_versions2', {}).get('candidates'):
+                                                    img_url = cm['image_versions2']['candidates'][0]['url']
+                                                    if img_url not in seen_urls:
+                                                        seen_urls.add(img_url)
+                                                        items.append({'url': img_url, 'type': 'IMAGE'})
+                                        elif 'edge_sidecar_to_children' in obj:
+                                            edges = obj['edge_sidecar_to_children'].get('edges', [])
+                                            for edge in edges:
+                                                node = edge.get('node', {})
+                                                if node.get('is_video') and node.get('video_url'):
+                                                    v_url = node['video_url']
+                                                    if v_url not in seen_urls:
+                                                        seen_urls.add(v_url)
+                                                        items.append({'url': v_url, 'type': 'VIDEO'})
+                                                elif node.get('display_url'):
+                                                    img_url = node['display_url']
+                                                    if img_url not in seen_urls:
+                                                        seen_urls.add(img_url)
+                                                        items.append({'url': img_url, 'type': 'IMAGE'})
+                                        for v in obj.values():
+                                            extract_from_json(v)
+                                    elif isinstance(obj, list):
+                                        for v in obj:
+                                            extract_from_json(v)
+                                extract_from_json(data)
                         except Exception:
                             pass
 
-                    # 3. Check DOM <video> and <source> tags (only if full video url)
-                    video_elems = await page.query_selector_all('video[src], video source[src]')
-                    for v in video_elems:
-                        v_src = await v.get_attribute('src')
-                        if v_src and ('instagram' in v_src or 'fbcdn' in v_src or '.mp4' in v_src) and not v_src.startswith('blob:') and "bytestart" not in v_src and v_src not in seen_urls:
-                            seen_urls.add(v_src)
-                            items.append({"url": v_src, "type": "VIDEO"})
+                    # 3. Check DOM <video> and <source> tags
+                    if not items:
+                        video_elems = await page.query_selector_all('article video[src], div[role="dialog"] video[src], main video[src], video[src]')
+                        for v in video_elems:
+                            v_src = await v.get_attribute('src')
+                            if v_src and ('instagram' in v_src or 'fbcdn' in v_src or '.mp4' in v_src) and not v_src.startswith('blob:') and "bytestart" not in v_src and v_src not in seen_urls:
+                                seen_urls.add(v_src)
+                                items.append({"url": v_src, "type": "VIDEO"})
 
-                    # 4. Check for multi-slide carousel if present
-                    next_btn = await page.query_selector('button[aria-label="Next"], button._af3_')
-                    if next_btn:
-                        for _ in range(10):
-                            # Check videos on current slide
-                            v_nodes = await page.query_selector_all('article video[src], div[role="dialog"] video[src]')
-                            for v in v_nodes:
-                                v_src = await v.get_attribute('src')
-                                if v_src and not v_src.startswith('blob:') and "bytestart" not in v_src and v_src not in seen_urls:
-                                    seen_urls.add(v_src)
-                                    items.append({"url": v_src, "type": "VIDEO"})
-                            
-                            # Check images on current slide inside article
-                            img_nodes = await page.query_selector_all('article img[srcset], article img[src*="fbcdn"], article img[src*="instagram"]')
-                            for img in img_nodes:
-                                img_src = await img.get_attribute('src')
-                                if img_src and "profile_pic" not in img_src and "150x150" not in img_src:
-                                    clean_stem = img_src.split('?')[0]
-                                    if clean_stem not in [u.split('?')[0] for u in seen_urls]:
-                                        seen_urls.add(img_src)
-                                        items.append({"url": img_src, "type": "IMAGE"})
-                            
-                            btn = await page.query_selector('button[aria-label="Next"], button._af3_')
-                            if btn and await btn.is_visible():
-                                await btn.click()
-                                await page.wait_for_timeout(800)
+                    # 4. Check DOM images across all slides with Next button clicks if needed
+                    if len(items) <= 1:
+                        for step in range(12):
+                            dom_imgs = await page.evaluate(r'''() => {
+                                const results = [];
+                                const container = document.querySelector('article') || document.querySelector('div[role="dialog"]') || document.querySelector('main') || document;
+                                const imgs = Array.from(container.querySelectorAll('img'));
+                                for (const img of imgs) {
+                                    const rect = img.getBoundingClientRect();
+                                    if (rect.width >= 150 && rect.height >= 150 && (img.src.includes('fbcdn') || img.src.includes('instagram')) && !img.src.includes('150x150') && !img.src.includes('profile_pic')) {
+                                        results.push(img.src);
+                                    }
+                                }
+                                return results;
+                            }''')
+                            for img_src in dom_imgs:
+                                clean_stem = img_src.split('?')[0].split('/')[-1]
+                                if clean_stem not in [x.split('?')[0].split('/')[-1] for x in seen_urls]:
+                                    seen_urls.add(img_src)
+                                    items.append({"url": img_src, "type": "IMAGE"})
+
+                            next_btn = await page.query_selector('article button[aria-label="Next"], div[role="dialog"] button[aria-label="Next"], button[aria-label="Next"], button._afxw')
+                            if next_btn and await next_btn.is_visible():
+                                try:
+                                    await next_btn.click()
+                                    await page.wait_for_timeout(600)
+                                except Exception:
+                                    break
                             else:
                                 break
 
@@ -218,7 +245,7 @@ class MediaDownloader:
                 finally:
                     await browser.close()
         except Exception as e:
-            logger.error(f"Playwright extraction failed for {shortcode}: {e}")
+            logger.error(f"Playwright extraction failed for {canonical_code}: {e}")
 
         return items
 
@@ -242,9 +269,11 @@ class MediaDownloader:
             return [{"url": video_url, "type": "VIDEO"}]
 
         items = []
+        clean_code = (shortcode or "").strip().replace("ig_", "")
+        canonical_code = clean_code[:11] if len(clean_code) >= 11 else clean_code
 
         # 1. Direct Web JSON probe (__a=1 / __d=dis) - ultra fast (<1s) without launching browsers
-        if shortcode:
+        if canonical_code:
             try:
                 headers = {
                     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
@@ -255,7 +284,7 @@ class MediaDownloader:
                     headers["Cookie"] = f"sessionid={session_cookie};"
                 
                 async with httpx.AsyncClient(timeout=8.0, follow_redirects=True, headers=headers) as probe_client:
-                    r = await probe_client.get(f"https://www.instagram.com/p/{shortcode}/?__a=1&__d=dis")
+                    r = await probe_client.get(f"https://www.instagram.com/p/{canonical_code}/?__a=1&__d=dis")
                     if r.status_code == 200:
                         try:
                             d = r.json()
@@ -290,10 +319,10 @@ class MediaDownloader:
 
         # 2. Try Instaloader if direct probe had no items or if a VIDEO is missing its video stream
         needs_instaloader = not items or (media_type == "VIDEO" and not any(it["type"] == "VIDEO" for it in items))
-        if needs_instaloader and shortcode:
+        if needs_instaloader and canonical_code:
             try:
                 instaloader_items = await asyncio.wait_for(
-                    asyncio.to_thread(_extract_via_instaloader, shortcode, session_cookie),
+                    asyncio.to_thread(_extract_via_instaloader, canonical_code, session_cookie),
                     timeout=15.0
                 )
                 if instaloader_items:

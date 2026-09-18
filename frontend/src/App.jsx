@@ -8,6 +8,8 @@ import BatchConfigModal from './components/BatchConfigModal'
 import UpdateModal from './components/UpdateModal'
 import UpdateConsoleModal from './components/UpdateConsoleModal'
 import PaginationBar from './components/PaginationBar'
+import HighlightsTray from './components/HighlightsTray'
+import HighlightViewerModal from './components/HighlightViewerModal'
 import DevToolsGuideModal from './components/DevToolsGuideModal'
 import LoginScreen from './components/LoginScreen'
 import ProfileAvatar from './components/ProfileAvatar'
@@ -34,6 +36,7 @@ export default function App() {
     status_message: 'Idle'
   })
   const [selectedUserFilter, setSelectedUserFilter] = useState(null)
+  const [selectedHighlight, setSelectedHighlight] = useState(null)
   const [sessionInput, setSessionInput] = useState('')
   const [sessionUsernameInput, setSessionUsernameInput] = useState('')
   const [showSessionKey, setShowSessionKey] = useState(false)
@@ -1070,12 +1073,31 @@ export default function App() {
     )
   }
 
-  const handleTogglePaginationMode = (mode) => {
+  const handleTogglePaginationMode = async (mode) => {
     setPaginationMode(mode)
     setPaginationModeInput(mode)
     if (mode === 'pages') {
+      scrollToContentTop('smooth')
       fetchFeed(1, false)
       fetchDownloadedContent(1, false)
+    }
+    try {
+      await fetch('/api/v1/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          download_directory: downloadDirInput || '',
+          auto_sync_interval_hours: parseInt(syncIntervalInput) || 6,
+          rate_limit_delay_seconds: parseFloat(rateLimitDelayInput) || 3.0,
+          max_posts_per_fetch: parseInt(maxPostsInput) >= 0 ? parseInt(maxPostsInput) : 50,
+          max_queue_limit: parseInt(maxQueueLimitInput) >= 1 ? parseInt(maxQueueLimitInput) : 8,
+          max_download_workers: parseInt(maxWorkersInput) >= 1 ? parseInt(maxWorkersInput) : 2,
+          pagination_mode: mode,
+          page_size: pageSize || 36
+        })
+      })
+    } catch (err) {
+      console.error('Error persisting pagination mode to DB:', err)
     }
   }
 
@@ -1238,6 +1260,13 @@ export default function App() {
                 Clear Filter
               </button>
             </div>
+          )}
+
+          {selectedUserFilter && (activeTab === 'dashboard' || activeTab === 'downloads') && (
+            <HighlightsTray
+              username={selectedUserFilter}
+              onSelectHighlight={(hl) => setSelectedHighlight(hl)}
+            />
           )}
 
           {activeTab === 'dashboard' && (
@@ -3277,6 +3306,15 @@ export default function App() {
         isOpen={isDevToolsGuideOpen}
         onClose={() => setIsDevToolsGuideOpen(false)}
       />
+
+      {selectedHighlight && (
+        <HighlightViewerModal
+          highlight={selectedHighlight}
+          username={selectedUserFilter || selectedHighlight.username}
+          onClose={() => setSelectedHighlight(null)}
+          onSaveMedia={handleSaveMedia}
+        />
+      )}
     </div>
   )
 }

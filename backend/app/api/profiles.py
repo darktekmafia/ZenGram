@@ -35,7 +35,8 @@ async def sync_followed_accounts(db: AsyncSession = Depends(get_db)):
     # Fetch active user session
     res = await db.execute(select(UserSession).where(UserSession.is_active == True))
     session = res.scalars().first()
-    cookie = session.session_cookie if session else None
+    from backend.app.auth_utils import decrypt_secret
+    cookie = decrypt_secret(session.session_cookie) if session else None
     username = session.username if session else "admin"
 
     if not cookie or cookie == "dummy_session_cookie":
@@ -106,7 +107,8 @@ async def sync_followed_accounts(db: AsyncSession = Depends(get_db)):
 async def get_active_scraper(db: AsyncSession) -> InstagramScraperEngine:
     res = await db.execute(select(UserSession).where(UserSession.is_active == True))
     session = res.scalars().first()
-    cookie = session.session_cookie if session and session.session_cookie != "dummy_session_cookie" else None
+    from backend.app.auth_utils import decrypt_secret
+    cookie = decrypt_secret(session.session_cookie) if session and session.session_cookie != "dummy_session_cookie" else None
     return InstagramScraperEngine(session_cookie=cookie)
 
 @router.post("", response_model=WatchedProfileResponse)
@@ -290,3 +292,142 @@ async def fetch_user_media(username: str, limit: int = Query(0, ge=0, le=5000), 
     for it in items:
         enrich_media_item(it)
     return items
+
+
+@router.get("/{username}/highlights")
+async def get_user_highlights(username: str, db: AsyncSession = Depends(get_db)):
+    """Fetch list of permanent Story Highlight albums for a profile."""
+    clean_username = username.lstrip("@").strip()
+    wp_res = await db.execute(select(WatchedProfile).where(WatchedProfile.username == clean_username))
+    wp = wp_res.scalars().first()
+    
+    scraper = await get_active_scraper(db)
+    highlights = await scraper.get_user_highlights(
+        username=clean_username,
+        user_id=wp.ig_user_id if wp else None
+    )
+    return highlights
+
+
+@router.get("/{username}/highlights/{highlight_id}/media")
+async def get_highlight_album_media(
+    username: str,
+    highlight_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Fetch all story slides (photos/videos) within a specific highlight album."""
+    clean_username = username.lstrip("@").strip()
+    scraper = await get_active_scraper(db)
+    media = await scraper.get_highlight_media(
+        highlight_id=highlight_id,
+        username=clean_username
+    )
+    return media
+
+
+@router.post("/{username}/highlights/{highlight_id}/download")
+async def download_highlight_album(
+    username: str,
+    highlight_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Download all stories from a highlight album into <DOWNLOAD_DIR>/@username/Highlights/<Album_Title>/"""
+    import re
+    import os
+    import httpx
+    import datetime
+    from pathlib import Path
+    from backend.app.models import AppSettings
+    from backend.app.services.downloader import validate_media_file
+
+    clean_username = username.lstrip("@").strip()
+    scraper = await get_active_scraper(db)
+    media_items = await scraper.get_highlight_media(highlight_id, username=clean_username)
+
+    if not media_items:
+        raise HTTPException(
+            status_code=404,
+            detail="No media items found in this highlight album or highlight is private."
+        )
+
+    # Get configured download directory
+    settings_res = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+    app_settings = settings_res.scalars().first()
+    from backend.app.config import settings
+    base_dir = Path(app_settings.download_directory) if app_settings and app_settings.download_directory else settings.DOWNLOAD_DIR
+
+    raw_album = media_items[0].get("album_title") or "Highlights"
+    safe_album = re.sub(r'[^\w\-_\. ]', '_', raw_album).strip() or "Highlights"
+    target_folder = base_dir / f"@{clean_username}" / "Highlights" / safe_album
+    os.makedirs(target_folder, exist_ok=True)
+
+    downloaded_files = []
+    headers = {
+        "User-Agent": scraper.headers.get("User-Agent", "Mozilla/5.0"),
+        "Accept": "*/*",
+        "Referer": "https://www.instagram.com/",
+    }
+
+    for idx, item in enumerate(media_items):
+        file_url = item.get("video_url") if (item.get("media_type") == "VIDEO" and item.get("video_url")) else item.get("display_url")
+        if not file_url:
+            continue
+
+        ext = "mp4" if item.get("media_type") == "VIDEO" or ".mp4" in file_url else "jpg"
+        pk = item.get("shortcode") or f"story_{idx + 1}"
+        
+        taken_at_str = item.get("taken_at").strftime("%Y-%m-%d") if isinstance(item.get("taken_at"), datetime.datetime) else "story"
+        filename = f"{taken_at_str}_{pk}.{ext}"
+        target_path = target_folder / filename
+        part_path = target_folder / f"{filename}.part"
+
+        if not (target_path.exists() and validate_media_file(target_path)):
+            try:
+                async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=60.0) as client:
+                    async with client.stream("GET", file_url) as resp:
+                        if resp.status_code == 200:
+                            with open(part_path, "wb") as f:
+                                async for chunk in resp.aiter_bytes(chunk_size=65536):
+                                    f.write(chunk)
+                            if part_path.exists():
+                                if validate_media_file(part_path):
+                                    part_path.replace(target_path)
+                                else:
+                                    part_path.unlink(missing_ok=True)
+            except Exception as e:
+                if part_path.exists():
+                    part_path.unlink(missing_ok=True)
+                continue
+
+        if target_path.exists():
+            downloaded_files.append(str(target_path))
+            
+            # Store in MediaItem database so it is indexed
+            post_id = item["post_id"]
+            existing_res = await db.execute(select(MediaItem).where(MediaItem.post_id == post_id))
+            existing_item = existing_res.scalars().first()
+            if not existing_item:
+                new_db_item = MediaItem(
+                    post_id=post_id,
+                    shortcode=item["shortcode"],
+                    username=clean_username,
+                    media_type=item["media_type"],
+                    display_url=item["display_url"],
+                    thumbnail_url=item.get("thumbnail_url"),
+                    video_url=item.get("video_url"),
+                    caption=item.get("caption"),
+                    likes_count=0,
+                    comments_count=0,
+                    taken_at=item.get("taken_at")
+                )
+                db.add(new_db_item)
+                await db.commit()
+
+    return {
+        "success": True,
+        "album_title": raw_album,
+        "total_items": len(media_items),
+        "downloaded_count": len(downloaded_files),
+        "folder": str(target_folder),
+        "files": downloaded_files
+    }
