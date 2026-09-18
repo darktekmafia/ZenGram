@@ -229,3 +229,14 @@ class BackupListResponse(BaseModel):
     total_count: int
     total_size_formatted: str
 
+class SecurityCheckStatusResponse(BaseModel):
+    status: str  # idle, in_progress, completed, failed
+    progress_percent: int = 0
+    current_stage: str = "Ready"
+    logs: str = ""
+    passed: bool = False
+    error: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+
+

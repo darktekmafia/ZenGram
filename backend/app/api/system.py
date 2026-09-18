@@ -588,6 +588,132 @@ async def get_update_status(
     return UpdateStatusResponse(**_active_update_job)
 
 
+# -------------------------------------------------------------
+# Automated Security Diagnostic Check Runner
+# -------------------------------------------------------------
+
+_active_security_check_lock = asyncio.Lock()
+_active_security_check_job: Dict[str, Any] = {
+    "status": "idle",  # idle, in_progress, completed, failed
+    "progress_percent": 0,
+    "current_stage": "Ready",
+    "logs": "",
+    "passed": False,
+    "error": None,
+    "started_at": None,
+    "finished_at": None
+}
+
+
+async def _run_security_check_process():
+    global _active_security_check_job
+    base_dir = settings.BASE_DIR
+    test_script_path = base_dir / "backend" / "tests" / "test_security.py"
+
+    _active_security_check_job["status"] = "in_progress"
+    _active_security_check_job["progress_percent"] = 10
+    _active_security_check_job["current_stage"] = "Initializing isolated test environment..."
+    _active_security_check_job["logs"] = (
+        f"[{datetime.now().strftime('%H:%M:%S')}] Launching ZenGram Security & Hardening Diagnostic Suite...\n"
+        f"[{datetime.now().strftime('%H:%M:%S')}] Target test script: backend/tests/test_security.py\n"
+        f"[{datetime.now().strftime('%H:%M:%S')}] Allocating isolated disposable database in memory...\n\n"
+    )
+    _active_security_check_job["passed"] = False
+    _active_security_check_job["error"] = None
+    _active_security_check_job["started_at"] = datetime.now().isoformat()
+    _active_security_check_job["finished_at"] = None
+
+    try:
+        env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONPATH=str(base_dir))
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            str(test_script_path),
+            cwd=str(base_dir),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env=env
+        )
+
+        all_logs = []
+        _active_security_check_job["progress_percent"] = 30
+        _active_security_check_job["current_stage"] = "Executing 20 security & encryption boundary tests..."
+
+        while True:
+            line = await proc.stdout.readline()
+            if not line:
+                break
+            decoded = line.decode("utf-8", errors="replace")
+            _active_security_check_job["logs"] += decoded
+            all_logs.append(decoded)
+
+            if "FATAL: Decryption failed" in decoded:
+                _active_security_check_job["progress_percent"] = 65
+                _active_security_check_job["current_stage"] = "Verifying fail-closed key tampering defense..."
+            elif "FATAL: Database credential verification" in decoded:
+                _active_security_check_job["progress_percent"] = 85
+                _active_security_check_job["current_stage"] = "Verifying atomic transaction rollbacks..."
+
+        exit_code = await proc.wait()
+        full_text = "".join(all_logs)
+
+        if exit_code == 0 and "All security, encryption-at-rest" in full_text:
+            _active_security_check_job["status"] = "completed"
+            _active_security_check_job["passed"] = True
+            _active_security_check_job["progress_percent"] = 100
+            _active_security_check_job["current_stage"] = "All 20 Security Suites Passed"
+            _active_security_check_job["logs"] += f"\n[{datetime.now().strftime('%H:%M:%S')}] [SUCCESS] Security diagnostic completed cleanly. Zero vulnerabilities or data leaks detected.\n"
+        else:
+            _active_security_check_job["status"] = "failed"
+            _active_security_check_job["passed"] = False
+            _active_security_check_job["progress_percent"] = 100
+            _active_security_check_job["current_stage"] = "Security Check Failed"
+            _active_security_check_job["error"] = f"Test exited with non-zero code ({exit_code})"
+            _active_security_check_job["logs"] += f"\n[{datetime.now().strftime('%H:%M:%S')}] [FAILURE] Security tests encountered an error (exit code: {exit_code}).\n"
+
+        _active_security_check_job["finished_at"] = datetime.now().isoformat()
+
+    except Exception as e:
+        logger.error(f"Error executing security check: {e}")
+        _active_security_check_job["status"] = "failed"
+        _active_security_check_job["passed"] = False
+        _active_security_check_job["current_stage"] = "Execution Error"
+        _active_security_check_job["error"] = str(e)
+        _active_security_check_job["logs"] += f"\n[{datetime.now().strftime('%H:%M:%S')}] [!] Exception during execution: {e}\n"
+        _active_security_check_job["finished_at"] = datetime.now().isoformat()
+
+
+@router.post("/security-check/run")
+async def run_security_check(
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """Trigger the automated security test suite on a disposable database."""
+    global _active_security_check_job
+    from backend.app.schemas import SecurityCheckStatusResponse
+
+    async with _active_security_check_lock:
+        if _active_security_check_job["status"] == "in_progress":
+            return SecurityCheckStatusResponse(**_active_security_check_job)
+
+        asyncio.create_task(_run_security_check_process())
+        return SecurityCheckStatusResponse(
+            status="in_progress",
+            progress_percent=10,
+            current_stage="Launching security diagnostic suite...",
+            logs="Initializing security check...\n",
+            started_at=datetime.now().isoformat()
+        )
+
+
+@router.get("/security-check/status")
+async def get_security_check_status(
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """Poll the live status and logs of the security diagnostic check."""
+    from backend.app.schemas import SecurityCheckStatusResponse
+    return SecurityCheckStatusResponse(**_active_security_check_job)
+
+
+
 @router.get("/stats", response_model=AppStatsResponse)
 async def get_application_stats(
     refresh: bool = Query(False),

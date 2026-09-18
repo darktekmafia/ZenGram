@@ -7,6 +7,7 @@ import ConsoleModal from './components/ConsoleModal'
 import BatchConfigModal from './components/BatchConfigModal'
 import UpdateModal from './components/UpdateModal'
 import UpdateConsoleModal from './components/UpdateConsoleModal'
+import SecurityCheckModal from './components/SecurityCheckModal'
 import PaginationBar from './components/PaginationBar'
 import HighlightsTray from './components/HighlightsTray'
 import HighlightViewerModal from './components/HighlightViewerModal'
@@ -62,6 +63,7 @@ export default function App() {
   const [updateModalTab, setUpdateModalTab] = useState('auto')
   const [isUpdateConsoleOpen, setIsUpdateConsoleOpen] = useState(false)
   const [isUpdateConsoleDocked, setIsUpdateConsoleDocked] = useState(false)
+  const [isSecurityCheckOpen, setIsSecurityCheckOpen] = useState(false)
   const [isDevToolsGuideOpen, setIsDevToolsGuideOpen] = useState(false)
   const [interactiveLoginState, setInteractiveLoginState] = useState(null)
   const [isStartingBrowserLogin, setIsStartingBrowserLogin] = useState(false)
@@ -3532,6 +3534,51 @@ export default function App() {
                         )}
                       </div>
                     </form>
+
+                    {/* Automated Security & Isolation Diagnostic Runner */}
+                    <div
+                      style={{
+                        marginTop: '24px',
+                        borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                        paddingTop: '16px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                        <div>
+                          <div style={{ fontWeight: '600', fontSize: '0.92rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <ShieldCheck size={17} style={{ color: '#34d399' }} />
+                            <span>Security & Hardening Diagnostic Runner</span>
+                            <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                              20 Boundary Suites
+                            </span>
+                          </div>
+                          <p className="settings-description" style={{ marginTop: '4px', maxWidth: '640px' }}>
+                            Executes an automated regression suite on an isolated in-memory test database. Validates AES-256 encryption-at-rest, credential redaction, SSRF/DNS rebinding defense, fail-closed key tampering detection, and atomic transaction rollbacks.
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          onClick={() => setIsSecurityCheckOpen(true)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                            color: '#ffffff',
+                            fontWeight: '600',
+                            padding: '8px 16px',
+                            borderRadius: '8px',
+                            fontSize: '0.84rem',
+                            boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)'
+                          }}
+                        >
+                          <ShieldCheck size={16} />
+                          <span>Run Security Check Now</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -3605,6 +3652,11 @@ export default function App() {
       <DevToolsGuideModal
         isOpen={isDevToolsGuideOpen}
         onClose={() => setIsDevToolsGuideOpen(false)}
+      />
+
+      <SecurityCheckModal
+        isOpen={isSecurityCheckOpen}
+        onClose={() => setIsSecurityCheckOpen(false)}
       />
 
       {selectedHighlight && (
