@@ -81,6 +81,7 @@ export default function UpdateModal({
   }
 
   const pendingCommits = systemVersion?.pending_commits || []
+  const installedCommits = systemVersion?.installed_commits || []
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -254,7 +255,7 @@ export default function UpdateModal({
                   {/* Category Summary Pills */}
                   {pendingCommits.length > 1 && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                      {['Feature', 'Fix', 'Security', 'Performance'].map(cat => {
+                      {['Feature', 'Fix', 'Security', 'Performance', 'Docs', 'Refactor'].map(cat => {
                         const count = pendingCommits.filter(c => (c.category || '').toLowerCase() === cat.toLowerCase()).length
                         if (count === 0) return null
                         const style = getCategoryStyle(cat)
@@ -526,7 +527,7 @@ export default function UpdateModal({
                 gap: '14px'
               }}>
                 <div>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Installed Version</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Installed Version</div>
                   <div style={{ fontSize: '1.3rem', fontWeight: '700', color: '#fff', marginTop: '2px' }}>
                     v{systemVersion?.version || '1.0.0'}
                   </div>
@@ -536,7 +537,7 @@ export default function UpdateModal({
                 </div>
 
                 <div>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Update Status</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Update Status</div>
                   <div style={{ fontSize: '0.95rem', fontWeight: '600', color: isUpdateAvailable ? '#a78bfa' : '#34d399', marginTop: '6px' }}>
                     {isUpdateAvailable ? `● ${systemVersion?.update_status_text}` : '● System is Up to Date'}
                   </div>
@@ -551,37 +552,208 @@ export default function UpdateModal({
                 background: 'rgba(255, 255, 255, 0.02)',
                 borderRadius: '8px',
                 border: '1px solid var(--border-color)',
-                padding: '14px',
+                padding: '12px 14px',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '10px',
+                gap: '8px',
                 fontSize: '0.82rem'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ color: 'var(--text-muted)' }}>Operating System:</span>
                   <span style={{ fontWeight: '600', color: 'var(--text-main)' }}>{systemVersion?.distro_name || 'Linux'}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '6px' }}>
                   <span style={{ color: 'var(--text-muted)' }}>Server Hostname:</span>
                   <span style={{ fontWeight: '600', color: 'var(--text-main)' }}>{systemVersion?.hostname || 'localhost'}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '6px' }}>
                   <span style={{ color: 'var(--text-muted)' }}>Python Runtime:</span>
                   <span style={{ fontWeight: '600', color: 'var(--text-main)' }}>Python {systemVersion?.python_version || '3.12+'} (FastAPI + Uvicorn)</span>
                 </div>
-                <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '8px' }}>
-                  <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '4px' }}>Latest Local Commit Message:</div>
-                  <div style={{
-                    color: 'var(--text-main)',
-                    fontStyle: 'italic',
-                    background: 'var(--bg-tertiary)',
-                    padding: '8px 12px',
-                    borderRadius: '6px',
-                    border: '1px solid rgba(255, 255, 255, 0.05)'
-                  }}>
-                    "{systemVersion?.commit_message || 'Local build'}"
+              </div>
+
+              {/* Installed Commit History Section */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ fontSize: '0.82rem', fontWeight: '600', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Layers size={14} style={{ color: '#34d399' }} />
+                    <span>Recent Installed Commits & Changelog ({installedCommits.length})</span>
                   </div>
+
+                  {/* Category Summary Pills */}
+                  {installedCommits.length > 1 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      {['Feature', 'Fix', 'Security', 'Performance', 'Docs', 'Refactor'].map(cat => {
+                        const count = installedCommits.filter(c => (c.category || '').toLowerCase() === cat.toLowerCase()).length
+                        if (count === 0) return null
+                        const style = getCategoryStyle(cat)
+                        return (
+                          <span
+                            key={cat}
+                            style={{
+                              fontSize: '0.68rem',
+                              padding: '2px 7px',
+                              borderRadius: '10px',
+                              background: style.bg,
+                              color: style.color,
+                              border: `1px solid ${style.border}`,
+                              fontWeight: '600',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <span>{style.icon}</span>
+                            <span>{count} {cat}{count > 1 ? 's' : ''}</span>
+                          </span>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
+
+                {installedCommits.length > 0 ? (
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                    maxHeight: '280px',
+                    overflowY: 'auto',
+                    paddingRight: '4px'
+                  }}>
+                    {installedCommits.map((c, idx) => {
+                      const isExpanded = !!expandedCommits[`installed_${c.hash || idx}`]
+                      const catStyle = getCategoryStyle(c.category)
+                      const hasBody = !!c.body && c.body.trim().length > 0
+
+                      return (
+                        <div
+                          key={`installed_${c.hash || idx}`}
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.03)',
+                            border: '1px solid rgba(255, 255, 255, 0.07)',
+                            borderRadius: '8px',
+                            padding: '10px 14px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px',
+                            transition: 'background 0.15s ease'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', flex: 1 }}>
+                              {/* Category Badge */}
+                              <span style={{
+                                fontSize: '0.68rem',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                background: catStyle.bg,
+                                color: catStyle.color,
+                                border: `1px solid ${catStyle.border}`,
+                                fontWeight: '700',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.4px',
+                                flexShrink: 0,
+                                marginTop: '1px'
+                              }}>
+                                {catStyle.label}
+                              </span>
+
+                              {/* Hash */}
+                              <span style={{
+                                fontFamily: 'monospace',
+                                fontSize: '0.74rem',
+                                background: 'rgba(16, 185, 129, 0.15)',
+                                color: '#6ee7b7',
+                                border: '1px solid rgba(16, 185, 129, 0.25)',
+                                padding: '1px 5px',
+                                borderRadius: '4px',
+                                flexShrink: 0,
+                                marginTop: '1px'
+                              }}>
+                                #{c.hash}
+                              </span>
+
+                              {/* Message */}
+                              <span style={{ fontSize: '0.84rem', fontWeight: '500', color: '#fff', lineHeight: 1.4 }}>
+                                {c.message}
+                              </span>
+                            </div>
+
+                            {/* Expand Body Button if body exists */}
+                            {hasBody && (
+                              <button
+                                type="button"
+                                onClick={() => toggleExpandCommit(`installed_${c.hash || idx}`)}
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: isExpanded ? '#34d399' : 'var(--text-muted)',
+                                  cursor: 'pointer',
+                                  padding: '2px 4px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '2px',
+                                  fontSize: '0.72rem',
+                                  flexShrink: 0
+                                }}
+                                title={isExpanded ? 'Collapse commit details' : 'Expand commit details'}
+                              >
+                                <span>{isExpanded ? 'Less' : 'Details'}</span>
+                                {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Expanded Commit Body / Details */}
+                          {hasBody && isExpanded && (
+                            <div style={{
+                              marginTop: '4px',
+                              padding: '8px 12px',
+                              background: 'rgba(0, 0, 0, 0.35)',
+                              border: '1px solid rgba(255, 255, 255, 0.08)',
+                              borderRadius: '6px',
+                              fontSize: '0.78rem',
+                              color: '#cbd5e1',
+                              lineHeight: 1.5,
+                              whiteSpace: 'pre-wrap',
+                              fontFamily: 'monospace'
+                            }}>
+                              {c.body}
+                            </div>
+                          )}
+
+                          {/* Author & Timestamp */}
+                          {(c.author || c.date) && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              {c.author && (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <User size={11} /> {c.author}
+                                </span>
+                              )}
+                              {c.date && (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <Clock size={11} /> {c.date}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div style={{
+                    padding: '14px',
+                    background: 'rgba(255, 255, 255, 0.02)',
+                    borderRadius: '8px',
+                    fontSize: '0.82rem',
+                    color: 'var(--text-muted)',
+                    fontStyle: 'italic'
+                  }}>
+                    {systemVersion?.commit_message ? `Active local commit: "${systemVersion.commit_message}"` : 'Local build active.'}
+                  </div>
+                )}
               </div>
             </>
           )}

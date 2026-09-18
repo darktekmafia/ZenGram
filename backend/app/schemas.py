@@ -202,6 +202,7 @@ class VersionInfoResponse(BaseModel):
     latest_commit: Optional[str] = None
     behind_by: int = 0
     pending_commits: List[CommitSummary] = []
+    installed_commits: List[CommitSummary] = []
     distro_name: str
     hostname: str
     python_version: str

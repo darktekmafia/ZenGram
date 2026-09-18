@@ -172,6 +172,53 @@ def get_system_uptime_string() -> str:
 _cached_git_info: Optional[Dict[str, Any]] = None
 _last_git_check_time: float = 0.0
 
+def _parse_git_log_output(log_text: str) -> List[CommitSummary]:
+    """Parse delimited git log output into structured CommitSummary objects."""
+    results = []
+    if not log_text or not log_text.strip():
+        return results
+    raw_entries = log_text.strip().split("\x1e")
+    for entry in raw_entries:
+        entry = entry.strip()
+        if not entry:
+            continue
+        parts = entry.split("\x1f")
+        if len(parts) >= 4:
+            c_hash = parts[0][:7]
+            c_msg = parts[1].strip()
+            c_author = parts[2].strip()
+            c_date = parts[3].strip()
+            c_body = parts[4].strip() if len(parts) > 4 else None
+            if c_body == "":
+                c_body = None
+
+            # Categorize commit
+            msg_lower = c_msg.lower()
+            category = "Update"
+            if msg_lower.startswith("feat") or "feature:" in msg_lower:
+                category = "Feature"
+            elif msg_lower.startswith("fix") or "bugfix:" in msg_lower:
+                category = "Fix"
+            elif msg_lower.startswith("sec") or "security:" in msg_lower:
+                category = "Security"
+            elif msg_lower.startswith("perf") or "performance:" in msg_lower:
+                category = "Performance"
+            elif msg_lower.startswith("docs") or "doc:" in msg_lower:
+                category = "Docs"
+            elif msg_lower.startswith("refactor"):
+                category = "Refactor"
+
+            results.append(CommitSummary(
+                hash=c_hash,
+                message=c_msg,
+                body=c_body,
+                author=c_author,
+                date=c_date,
+                category=category
+            ))
+    return results
+
+
 def get_git_info(fetch_remote: bool = False) -> Dict[str, Any]:
     """Retrieve local Git repository commit and branch metadata, comparing against upstream origin/main with automatic cache/refresh."""
     global _cached_git_info, _last_git_check_time
@@ -193,7 +240,9 @@ def get_git_info(fetch_remote: bool = False) -> Dict[str, Any]:
         "behind_by": 0,
         "latest_commit": "unknown",
         "update_available": False,
-        "latest_version": settings.VERSION
+        "latest_version": settings.VERSION,
+        "pending_commits": [],
+        "installed_commits": []
     }
     
     git_dir = base_dir / ".git"
@@ -267,6 +316,18 @@ def get_git_info(fetch_remote: bool = False) -> Dict[str, Any]:
         if res_br.returncode == 0:
             info["branch"] = res_br.stdout.strip()
 
+        # Fetch recent installed commits from local HEAD (up to 15 commits with full bodies/metadata)
+        res_installed_log = subprocess.run(
+            ["git", "log", "HEAD", "--format=%H\x1f%s\x1f%an\x1f%ad\x1f%b\x1e", "--date=relative", "-n", "15"],
+            cwd=str(base_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=5
+        )
+        if res_installed_log.returncode == 0:
+            info["installed_commits"] = _parse_git_log_output(res_installed_log.stdout)
+
         # Compare with origin/main or origin/{branch}
         target_branch = info["branch"] if info["branch"] not in ("HEAD", "") else "main"
         remote_ref = f"origin/{target_branch}"
@@ -321,48 +382,8 @@ def get_git_info(fetch_remote: bool = False) -> Dict[str, Any]:
                     text=True,
                     timeout=5
                 )
-                pending = []
                 if res_log.returncode == 0 and res_log.stdout.strip():
-                    raw_entries = res_log.stdout.strip().split("\x1e")
-                    for entry in raw_entries:
-                        entry = entry.strip()
-                        if not entry:
-                            continue
-                        parts = entry.split("\x1f")
-                        if len(parts) >= 4:
-                            c_hash = parts[0][:7]
-                            c_msg = parts[1].strip()
-                            c_author = parts[2].strip()
-                            c_date = parts[3].strip()
-                            c_body = parts[4].strip() if len(parts) > 4 else None
-                            if c_body == "":
-                                c_body = None
-
-                            # Categorize commit
-                            msg_lower = c_msg.lower()
-                            category = "Update"
-                            if msg_lower.startswith("feat") or "feature:" in msg_lower:
-                                category = "Feature"
-                            elif msg_lower.startswith("fix") or "bugfix:" in msg_lower:
-                                category = "Fix"
-                            elif msg_lower.startswith("sec") or "security:" in msg_lower:
-                                category = "Security"
-                            elif msg_lower.startswith("perf") or "performance:" in msg_lower:
-                                category = "Performance"
-                            elif msg_lower.startswith("docs") or "doc:" in msg_lower:
-                                category = "Docs"
-                            elif msg_lower.startswith("refactor"):
-                                category = "Refactor"
-
-                            pending.append(CommitSummary(
-                                hash=c_hash,
-                                message=c_msg,
-                                body=c_body,
-                                author=c_author,
-                                date=c_date,
-                                category=category
-                            ))
-                info["pending_commits"] = pending
+                    info["pending_commits"] = _parse_git_log_output(res_log.stdout)
 
     except Exception as e:
         logger.warning(f"Error reading git info: {e}")
@@ -413,6 +434,7 @@ def _build_version_response(git_info: Dict[str, Any]) -> VersionInfoResponse:
         latest_commit=git_info["latest_commit"],
         behind_by=git_info["behind_by"],
         pending_commits=git_info.get("pending_commits", []),
+        installed_commits=git_info.get("installed_commits", []),
         distro_name=distro,
         hostname=hostname,
         python_version=py_ver,
