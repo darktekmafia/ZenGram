@@ -65,21 +65,28 @@ async def init_db():
             pass
 
         # Migrate any legacy plaintext session cookies to AES-256 encrypted ciphertext (Fail-Closed & Atomic)
-        from backend.app.auth_utils import encrypt_secret
+        from backend.app.auth_utils import encrypt_secret, decrypt_secret
         try:
             res = await conn.execute(text("SELECT id, session_cookie FROM user_sessions WHERE session_cookie IS NOT NULL"))
             rows = res.fetchall()
             for row_id, cookie_val in rows:
-                if cookie_val and cookie_val != "dummy_session_cookie" and not str(cookie_val).startswith("enc:"):
-                    enc_val = encrypt_secret(cookie_val)
-                    await conn.execute(
-                        text("UPDATE user_sessions SET session_cookie = :enc WHERE id = :id"),
-                        {"enc": enc_val, "id": row_id}
-                    )
+                if cookie_val and cookie_val != "dummy_session_cookie":
+                    if not str(cookie_val).startswith("enc:"):
+                        enc_val = encrypt_secret(cookie_val)
+                        await conn.execute(
+                            text("UPDATE user_sessions SET session_cookie = :enc WHERE id = :id"),
+                            {"enc": enc_val, "id": row_id}
+                        )
+                    else:
+                        # Verify existing key can decrypt existing encrypted credentials
+                        decrypt_secret(cookie_val, raise_on_error=True)
         except Exception as e:
             import logging
-            logging.getLogger("zengram.database").critical(f"FATAL: Database credential migration failed: {e}")
-            raise RuntimeError(f"Database initialization aborted: unable to safely migrate credentials: {e}") from e
+            logging.getLogger("zengram.database").critical(f"FATAL: Database credential verification or migration failed: {e}")
+            raise RuntimeError(
+                f"Database startup failed: Unable to decrypt or migrate stored credentials. "
+                f"Please ensure ~/.config/zengram/jwt_secret.key matches your original installation key: {e}"
+            ) from e
 
     # Restrict SQLite database and WAL files to owner-only read/write (0600)
     import os

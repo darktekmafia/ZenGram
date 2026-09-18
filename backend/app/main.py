@@ -94,59 +94,77 @@ ALLOWED_IMAGE_DOMAINS = (
     "facebook.com"
 )
 
-def _is_safe_image_proxy_url(url_str: str) -> bool:
+def _validate_and_pin_proxy_url(url_str: str):
+    """
+    Validate URL against SSRF policy and resolve destination IP directly to eliminate TOCTOU DNS rebinding.
+    Returns (pinned_url, original_hostname, port) or None if unsafe/invalid.
+    """
     import urllib.parse
     import ipaddress
     import socket
     try:
         parsed = urllib.parse.urlparse(url_str)
         if parsed.scheme not in ("http", "https"):
-            return False
-        
+            return None
+
         # Reject userinfo (e.g. http://user:pass@host)
         if parsed.username or parsed.password:
-            return False
+            return None
 
         # Reject non-standard ports
-        if parsed.port and parsed.port not in (80, 443):
-            return False
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        if port not in (80, 443):
+            return None
 
         hostname = (parsed.hostname or "").lower().strip()
         if not hostname:
-            return False
+            return None
 
         # Block localhost and literal IP addresses
         try:
             ip = ipaddress.ip_address(hostname)
             if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-                return False
+                return None
         except ValueError:
             pass
 
         if hostname in ("localhost", "127.0.0.1", "::1"):
-            return False
+            return None
 
         # Check domain allowlist
         if not any(hostname == d or hostname.endswith("." + d) for d in ALLOWED_IMAGE_DOMAINS):
-            return False
+            return None
 
-        # Verify resolved IP addresses against private / loopback ranges (fail closed on DNS resolution failure)
-        try:
-            addr_info = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
-            if not addr_info:
-                return False
-            for item in addr_info:
-                ip_str = item[4][0]
-                ip = ipaddress.ip_address(ip_str)
-                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-                    return False
-        except (socket.gaierror, socket.error, Exception):
-            # If DNS resolution fails, reject the URL immediately (fail closed)
-            return False
+        # Resolve DNS and verify that all returned addresses are public
+        addr_info = socket.getaddrinfo(hostname, port, proto=socket.IPPROTO_TCP)
+        if not addr_info:
+            return None
 
-        return True
+        validated_ip = None
+        for item in addr_info:
+            ip_str = item[4][0]
+            ip = ipaddress.ip_address(ip_str)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                return None
+            if not validated_ip:
+                validated_ip = ip_str
+
+        if not validated_ip:
+            return None
+
+        # Format pinned URL using the pre-validated IP
+        ip_formatted = f"[{validated_ip}]" if ":" in validated_ip else validated_ip
+        pinned_netloc = f"{ip_formatted}:{port}"
+        pinned_url = urllib.parse.urlunparse(parsed._replace(netloc=pinned_netloc))
+        return (pinned_url, hostname, port)
     except Exception:
-        return False
+        return None
+
+
+def _is_safe_image_proxy_url(url_str: str) -> bool:
+    """Check if URL passes SSRF and domain allowlist policies."""
+    return _validate_and_pin_proxy_url(url_str) is not None
+
 
 @app.get("/api/v1/proxy/image")
 async def proxy_image(
@@ -195,8 +213,9 @@ async def proxy_image(
 
     target_url = html.unescape(target_url).replace("&amp;", "&").strip().strip('"').strip("'")
 
-    # SSRF & Domain whitelist validation
-    if not _is_safe_image_proxy_url(target_url):
+    # SSRF & Domain whitelist validation + IP resolution pinning
+    pin_info = _validate_and_pin_proxy_url(target_url)
+    if not pin_info:
         raise HTTPException(status_code=400, detail="Target host is not permitted by image proxy policy.")
 
     # Local disk cache lookup (cryptographic hash of full URL including query parameters)
@@ -221,23 +240,24 @@ async def proxy_image(
         except Exception:
             pass
 
-    async with httpx.AsyncClient(timeout=15.0, follow_redirects=False, trust_env=False) as client:
-        current_fetch_url = target_url
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=False, trust_env=False, verify=True) as client:
+        current_pin = pin_info
         max_redirects = 3
         res = None
 
         for _ in range(max_redirects + 1):
-            if not _is_safe_image_proxy_url(current_fetch_url):
-                raise HTTPException(status_code=400, detail="Redirect destination is not permitted by image proxy policy.")
+            pinned_url, original_hostname, port = current_pin
 
             try:
                 res = await client.get(
-                    current_fetch_url,
+                    pinned_url,
                     headers={
+                        "Host": original_hostname,
                         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
                         "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
                         "Referer": "https://www.instagram.com/",
-                    }
+                    },
+                    extensions={"sni_hostname": original_hostname}
                 )
             except Exception:
                 break
@@ -246,7 +266,10 @@ async def proxy_image(
                 location = res.headers.get("Location")
                 if not location:
                     break
-                current_fetch_url = urllib.parse.urljoin(current_fetch_url, location)
+                next_url = urllib.parse.urljoin(target_url, location)
+                current_pin = _validate_and_pin_proxy_url(next_url)
+                if not current_pin:
+                    raise HTTPException(status_code=400, detail="Redirect destination is not permitted by image proxy policy.")
                 continue
 
             if res.status_code == 200:

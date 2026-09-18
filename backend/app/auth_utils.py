@@ -92,7 +92,7 @@ def encrypt_secret(plaintext: Optional[str]) -> str:
         raise RuntimeError(f"Encryption failed. Refusing to store unencrypted secret: {e}") from e
 
 
-def decrypt_secret(ciphertext: Optional[str]) -> str:
+def decrypt_secret(ciphertext: Optional[str], raise_on_error: bool = False) -> str:
     """Decrypt sensitive token string from storage at rest (AES-256 Fernet)."""
     if not ciphertext or ciphertext == "dummy_session_cookie":
         return ciphertext or ""
@@ -104,7 +104,14 @@ def decrypt_secret(ciphertext: Optional[str]) -> str:
         decrypted = cipher.decrypt(raw_b64.encode("utf-8")).decode("utf-8")
         return decrypted
     except Exception as e:
-        logger.error(f"Error decrypting secret at rest: {e}")
+        logger.critical(
+            f"FATAL: Decryption failed for encrypted credential: {e}. "
+            f"The current key at {SECRET_FILE_PATH} does not match the key used to encrypt this database."
+        )
+        if raise_on_error:
+            raise RuntimeError(
+                f"Decryption failed: Key mismatch. The key at {SECRET_FILE_PATH} cannot decrypt existing credentials."
+            ) from e
         return ""
 
 

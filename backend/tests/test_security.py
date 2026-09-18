@@ -209,10 +209,58 @@ async def test_security_hardening():
             assert key_a != key_b, "Distinct query parameters must produce different cache keys"
 
             # 14. Verify Encryption Fail-Closed behavior
-            from backend.app.auth_utils import encrypt_secret
+            from backend.app.auth_utils import encrypt_secret, decrypt_secret
             assert encrypt_secret("dummy_session_cookie") == "dummy_session_cookie"
             enc_result = encrypt_secret("valid_cookie_123")
             assert enc_result.startswith("enc:")
+
+            # 15. Verify Key Mismatch / Corrupted Ciphertext raises RuntimeError when verified
+            try:
+                decrypt_secret("enc:gAAAAABn_invalid_corrupted_payload_12345", raise_on_error=True)
+                assert False, "Expected RuntimeError on invalid/mismatched encryption key"
+            except RuntimeError:
+                pass
+
+            # 16. Verify IP Resolution Pinning in proxy URL validator (Anti-DNS Rebinding)
+            from backend.app.main import _validate_and_pin_proxy_url
+            pin_result = _validate_and_pin_proxy_url("https://scontent.cdninstagram.com/v/t51.2885-19/test.jpg")
+            assert pin_result is not None
+            pinned_url, host, port = pin_result
+            assert host == "scontent.cdninstagram.com"
+            assert port == 443
+            assert "scontent.cdninstagram.com" not in pinned_url.split("/")[2], "Pinned URL must replace host with resolved IP"
+
+            # 17. Verify Atomic Migration Rollback on multi-record failure
+            async with db_module.AsyncSessionLocal() as db:
+                from sqlalchemy import text
+                await db.execute(text("INSERT INTO user_sessions (username, session_cookie, is_active, created_at) VALUES ('rollback_user_1', 'unencrypted_alpha', 1, CURRENT_TIMESTAMP)"))
+                await db.execute(text("INSERT INTO user_sessions (username, session_cookie, is_active, created_at) VALUES ('rollback_user_2', 'unencrypted_beta', 1, CURRENT_TIMESTAMP)"))
+                await db.commit()
+
+            # Mock encrypt_secret to fail specifically on 'unencrypted_beta'
+            import backend.app.auth_utils as auth_module
+            real_encrypt = auth_module.encrypt_secret
+            def mock_fail_on_beta(val):
+                if val == "unencrypted_beta":
+                    raise RuntimeError("Simulated failure on second record")
+                return real_encrypt(val)
+
+            auth_module.encrypt_secret = mock_fail_on_beta
+            try:
+                await db_module.init_db()
+                assert False, "Expected init_db to fail and raise RuntimeError on migration error"
+            except RuntimeError:
+                pass
+            finally:
+                auth_module.encrypt_secret = real_encrypt
+
+            # Verify transaction was rolled back and rollback_user_1 was NOT partially committed
+            async with db_module.AsyncSessionLocal() as db:
+                from sqlalchemy import text
+                r1 = (await db.execute(text("SELECT session_cookie FROM user_sessions WHERE username = 'rollback_user_1'"))).scalar()
+                r2 = (await db.execute(text("SELECT session_cookie FROM user_sessions WHERE username = 'rollback_user_2'"))).scalar()
+                assert r1 == "unencrypted_alpha", f"Expected rollback to leave r1 unencrypted, but got: {r1}"
+                assert r2 == "unencrypted_beta", f"Expected rollback to leave r2 unencrypted, but got: {r2}"
 
     finally:
         await test_engine.dispose()
@@ -225,5 +273,5 @@ async def test_security_hardening():
 
 if __name__ == "__main__":
     asyncio.run(test_security_hardening())
-    print("All security, encryption-at-rest, and dual-mode authentication tests passed on disposable database!")
+    print("All security, encryption-at-rest, atomic rollback, and DNS-pinning tests passed on disposable database!")
 
