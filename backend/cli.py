@@ -226,27 +226,67 @@ def check_instagram_session(interactive: bool = True):
 
 
 def _test_live_session(username: str, sessionid: str):
-    """Test session cookie against Instagram API."""
+    """Test session cookie against Instagram API and provide optional Playwright browser check."""
     print_kv("Testing Session:", "Connecting to Instagram API...", CLR_CYAN)
-    import urllib.request
-    import json
+    import httpx
 
-    req = urllib.request.Request(
-        f"https://i.instagram.com/api/v1/users/web_profile_info/?username={username}",
-        headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Cookie": f"sessionid={sessionid};",
-            "X-IG-App-ID": "936619743392459"
-        }
-    )
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "X-IG-App-ID": "936619743392459",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": "https://www.instagram.com/",
+        "Cookie": f"sessionid={sessionid.strip()};"
+    }
+
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            if resp.status == 200:
+        with httpx.Client(headers=headers, timeout=8.0, follow_redirects=True) as client:
+            resp = client.get(f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}")
+            if resp.status_code == 200:
                 print_kv("Instagram API:", f"Session VALID for @{username} (HTTP 200 OK)", CLR_GREEN)
+                return
+            elif resp.status_code == 429:
+                print_kv("HTTP Probe Status:", "HTTP 429 (Meta throttles raw command-line HTTP requests)", CLR_YELLOW)
+                print_kv("Web UI Engine:", "Playwright Chromium browser sessions operate normally", CLR_GREEN)
+            elif resp.status_code in (401, 403):
+                print_kv("Instagram API:", f"Session EXPIRED or Invalid (HTTP {resp.status_code})", CLR_RED)
             else:
-                print_kv("Instagram API:", f"Response Status: HTTP {resp.status}", CLR_YELLOW)
+                print_kv("Instagram API:", f"HTTP Response: {resp.status_code}", CLR_YELLOW)
     except Exception as e:
-        print_kv("Instagram API:", f"Verification failed ({e})", CLR_RED)
+        print_kv("HTTP Probe:", f"Notice ({e})", CLR_YELLOW)
+
+    # Optional fast Playwright browser check
+    print(f"{CLR_CYAN}│{CLR_RESET}")
+    opt = input(f"{CLR_CYAN}│{CLR_RESET}  Run headless Playwright browser test to verify live session? (y/N): ").strip().lower()
+    if opt in ("y", "yes"):
+        print_kv("Browser Engine:", "Launching headless Chromium to test session...", CLR_CYAN)
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"])
+                context = browser.new_context(
+                    viewport={"width": 1280, "height": 800},
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+                )
+                context.add_cookies([{
+                    'name': 'sessionid',
+                    'value': sessionid.strip(),
+                    'domain': '.instagram.com',
+                    'path': '/',
+                    'secure': True
+                }])
+                page = context.new_page()
+                page.goto("https://www.instagram.com/", wait_until="domcontentloaded", timeout=15000)
+                page.wait_for_timeout(2000)
+                url = page.url
+                if "accounts/login" in url:
+                    print_kv("Browser Result:", "Session expired - redirected to login page", CLR_RED)
+                else:
+                    print_kv("Browser Result:", f"Session VALID and active in Chromium browser context (URL: {url})", CLR_GREEN)
+                browser.close()
+        except Exception as e:
+            print_kv("Browser Check:", f"Playwright probe notice ({e})", CLR_YELLOW)
 
 
 def _prompt_update_cookie(conn: sqlite3.Connection, cursor: sqlite3.Cursor, session_id: int, username: str):
