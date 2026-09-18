@@ -180,11 +180,31 @@ class FeedCrawlerService:
             self._current_username = ""
 
     async def _scheduler_loop(self):
-        """Periodic background task that checks if it's time to run auto-sync."""
+        """Periodic background task that checks if it's time to run auto-sync and checks for software updates."""
         logger.info("Feed Crawler periodic scheduler loop started.")
+        last_update_check: float = 0.0
+
+        # Initial check 5s after startup in background
+        async def _check_updates_safe():
+            try:
+                from backend.app.api.system import get_git_info
+                await asyncio.to_thread(get_git_info, fetch_remote=True)
+                logger.info("Background update check against upstream Git remote completed.")
+            except Exception as e:
+                logger.debug(f"Background update check skipped: {e}")
+
+        asyncio.create_task(_check_updates_safe())
+
         while True:
             try:
                 await asyncio.sleep(60)  # Check every minute
+                now_ts = asyncio.get_event_loop().time()
+
+                # Periodic update check every 2 hours (7200s)
+                if (now_ts - last_update_check) > 7200:
+                    last_update_check = now_ts
+                    asyncio.create_task(_check_updates_safe())
+
                 async with AsyncSessionLocal() as db:
                     settings_res = await db.execute(select(AppSettings).where(AppSettings.id == 1))
                     app_settings = settings_res.scalars().first()
@@ -194,7 +214,7 @@ class FeedCrawlerService:
                         now = datetime.datetime.utcnow()
                         should_sync = False
                         if not self._last_completed_at:
-                            # If never synced or freshly started, give 2 minutes grace before auto-syncing
+                            # If never synced or freshly started, give grace before auto-syncing
                             pass
                         elif (now - self._last_completed_at).total_seconds() >= interval_hours * 3600:
                             should_sync = True

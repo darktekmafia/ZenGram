@@ -378,7 +378,11 @@ export default function App() {
       fetchAppStats()
       fetchSystemHardware()
       const interval = setInterval(fetchRateLimit, 30000)
-      return () => clearInterval(interval)
+      const versionInterval = setInterval(fetchSystemVersion, 5 * 60 * 1000)
+      return () => {
+        clearInterval(interval)
+        clearInterval(versionInterval)
+      }
     }
   }, [authStatus, contentType, searchQuery, selectedUserFilter, activeTab])
 

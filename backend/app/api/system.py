@@ -164,8 +164,20 @@ def get_system_uptime_string() -> str:
 # Git and Distro Info
 # -------------------------------------------------------------
 
+_cached_git_info: Optional[Dict[str, Any]] = None
+_last_git_check_time: float = 0.0
+
 def get_git_info(fetch_remote: bool = False) -> Dict[str, Any]:
-    """Retrieve local Git repository commit and branch metadata, comparing against upstream origin/main."""
+    """Retrieve local Git repository commit and branch metadata, comparing against upstream origin/main with automatic cache/refresh."""
+    global _cached_git_info, _last_git_check_time
+    now = time.time()
+    
+    # Auto-fetch from remote if explicitly requested, if never checked, or if cache is older than 1 hour
+    should_fetch = fetch_remote or (_cached_git_info is None) or ((now - _last_git_check_time) > 3600.0)
+
+    if not should_fetch and _cached_git_info is not None and (now - _last_git_check_time) < 60.0:
+        return _cached_git_info
+
     base_dir = settings.BASE_DIR
     info = {
         "is_git": False,
@@ -181,12 +193,14 @@ def get_git_info(fetch_remote: bool = False) -> Dict[str, Any]:
     
     git_dir = base_dir / ".git"
     if not git_dir.exists():
+        _cached_git_info = info
+        _last_git_check_time = now
         return info
         
     try:
         info["is_git"] = True
         
-        if fetch_remote:
+        if should_fetch:
             try:
                 subprocess.run(
                     ["git", "fetch", "--quiet", "origin"],
@@ -296,6 +310,8 @@ def get_git_info(fetch_remote: bool = False) -> Dict[str, Any]:
     except Exception as e:
         logger.warning(f"Error reading git info: {e}")
 
+    _cached_git_info = info
+    _last_git_check_time = now
     return info
 
 
