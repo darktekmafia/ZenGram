@@ -83,6 +83,7 @@ async def proxy_image(request: Request, url: Optional[str] = Query(None), b64: O
     import base64
     import html
     import hashlib
+    import urllib.parse
 
     target_url = None
 
