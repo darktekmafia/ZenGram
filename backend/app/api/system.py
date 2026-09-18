@@ -164,62 +164,74 @@ def get_system_uptime_string() -> str:
 # Git and Distro Info
 # -------------------------------------------------------------
 
-def get_git_info() -> Dict[str, Any]:
-    """Retrieve local Git repository commit and branch metadata."""
+def get_git_info(fetch_remote: bool = False) -> Dict[str, Any]:
+    """Retrieve local Git repository commit and branch metadata, comparing against upstream origin/main."""
+    base_dir = settings.BASE_DIR
     info = {
         "is_git": False,
-        "commit_hash": "6a30c6b",
-        "commit_date": "2026-09-17",
-        "commit_message": "Enhance feed filtering and avatar scraping",
+        "commit_hash": "unknown",
+        "commit_date": "N/A",
+        "commit_message": "N/A",
         "branch": "main",
         "behind_by": 0,
-        "latest_commit": "6a30c6b",
+        "latest_commit": "unknown",
         "update_available": False,
         "latest_version": settings.VERSION
     }
     
-    base_dir = settings.BASE_DIR
     git_dir = base_dir / ".git"
-    
     if not git_dir.exists():
         return info
         
     try:
         info["is_git"] = True
         
-        # Commit short hash
+        if fetch_remote:
+            try:
+                subprocess.run(
+                    ["git", "fetch", "--quiet", "origin"],
+                    cwd=str(base_dir),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=10
+                )
+            except Exception as e:
+                logger.warning(f"Git remote fetch failed: {e}")
+
+        # Local commit short hash
         res_hash = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
             cwd=str(base_dir),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=2
+            timeout=3
         )
         if res_hash.returncode == 0:
             info["commit_hash"] = res_hash.stdout.strip()
             info["latest_commit"] = info["commit_hash"]
 
-        # Commit date
+        # Local commit date
         res_date = subprocess.run(
             ["git", "log", "-1", "--format=%cd", "--date=short"],
             cwd=str(base_dir),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=2
+            timeout=3
         )
         if res_date.returncode == 0:
             info["commit_date"] = res_date.stdout.strip()
 
-        # Commit subject
+        # Local commit subject
         res_msg = subprocess.run(
             ["git", "log", "-1", "--format=%s"],
             cwd=str(base_dir),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=2
+            timeout=3
         )
         if res_msg.returncode == 0:
             info["commit_message"] = res_msg.stdout.strip()
@@ -231,10 +243,55 @@ def get_git_info() -> Dict[str, Any]:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=2
+            timeout=3
         )
         if res_br.returncode == 0:
             info["branch"] = res_br.stdout.strip()
+
+        # Compare with origin/main or origin/{branch}
+        target_branch = info["branch"] if info["branch"] not in ("HEAD", "") else "main"
+        remote_ref = f"origin/{target_branch}"
+
+        res_remote_hash = subprocess.run(
+            ["git", "rev-parse", "--short", remote_ref],
+            cwd=str(base_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=3
+        )
+        if res_remote_hash.returncode == 0 and res_remote_hash.stdout.strip():
+            info["latest_commit"] = res_remote_hash.stdout.strip()
+
+        status_res = subprocess.run(
+            ["git", "rev-list", "--count", f"HEAD..{remote_ref}"],
+            cwd=str(base_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=3
+        )
+        if status_res.returncode == 0 and status_res.stdout.strip().isdigit():
+            behind = int(status_res.stdout.strip())
+            info["behind_by"] = behind
+            if behind > 0:
+                info["update_available"] = True
+                
+                # Fetch remote latest commit message & version if available
+                res_rem_msg = subprocess.run(
+                    ["git", "log", "-1", "--format=%s", remote_ref],
+                    cwd=str(base_dir),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=3
+                )
+                if res_rem_msg.returncode == 0 and res_rem_msg.stdout.strip():
+                    remote_msg = res_rem_msg.stdout.strip()
+                    for word in remote_msg.replace(":", " ").replace(",", " ").split():
+                        if word.startswith("v1.") or (word.startswith("1.") and len(word) >= 5):
+                            info["latest_version"] = word.lstrip("v")
+                            break
 
     except Exception as e:
         logger.warning(f"Error reading git info: {e}")
@@ -261,13 +318,15 @@ def get_distro_info() -> str:
 # API Endpoints
 # -------------------------------------------------------------
 
-@router.get("/version", response_model=VersionInfoResponse)
-async def get_version_info():
-    """Get full system version, commit history, and update status."""
-    git_info = get_git_info()
+def _build_version_response(git_info: Dict[str, Any]) -> VersionInfoResponse:
     distro = get_distro_info()
     hostname = platform.node()
     py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    update_text = (
+        "Up to date"
+        if not git_info["update_available"]
+        else f"Update Available ({git_info['behind_by']} new commit{'s' if git_info['behind_by'] != 1 else ''})"
+    )
 
     return VersionInfoResponse(
         version=settings.VERSION,
@@ -283,44 +342,22 @@ async def get_version_info():
         distro_name=distro,
         hostname=hostname,
         python_version=py_ver,
-        update_status_text="Up to date" if not git_info["update_available"] else f"Update available: {git_info['latest_version']}"
+        update_status_text=update_text
     )
+
+
+@router.get("/version", response_model=VersionInfoResponse)
+async def get_version_info():
+    """Get full system version, commit history, and update status."""
+    git_info = get_git_info(fetch_remote=False)
+    return _build_version_response(git_info)
 
 
 @router.post("/check-update", response_model=VersionInfoResponse)
 async def check_for_updates():
-    """Fetch upstream git origin or release feeds to check for new updates."""
-    base_dir = settings.BASE_DIR
-    git_info = get_git_info()
-    
-    if git_info["is_git"]:
-        try:
-            subprocess.run(
-                ["git", "fetch", "--quiet", "origin"],
-                cwd=str(base_dir),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=8
-            )
-            status_res = subprocess.run(
-                ["git", "rev-list", "--count", "HEAD..origin/main"],
-                cwd=str(base_dir),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=3
-            )
-            if status_res.returncode == 0 and status_res.stdout.strip().isdigit():
-                behind = int(status_res.stdout.strip())
-                git_info["behind_by"] = behind
-                if behind > 0:
-                    git_info["update_available"] = True
-                    git_info["update_status_text"] = f"Update Available ({behind} new commits)"
-        except Exception as e:
-            logger.debug(f"Git remote check: {e}")
-
-    return await get_version_info()
+    """Fetch upstream git origin to check for new updates."""
+    git_info = get_git_info(fetch_remote=True)
+    return _build_version_response(git_info)
 
 
 @router.get("/stats", response_model=AppStatsResponse)
