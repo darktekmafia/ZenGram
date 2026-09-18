@@ -44,6 +44,7 @@ export default function App() {
   const [interactiveLoginState, setInteractiveLoginState] = useState(null)
   const [isStartingBrowserLogin, setIsStartingBrowserLogin] = useState(false)
   const [displayInfo, setDisplayInfo] = useState(null)
+  const [showResourceGuide, setShowResourceGuide] = useState(false)
 
   // Pagination & Infinite Scroll State
   const [feedPage, setFeedPage] = useState(1)
@@ -2201,63 +2202,72 @@ export default function App() {
 
                 {expandedSections.storage && (
                   <div className="settings-accordion-body">
-                    {/* System Resource Impact Guidance Box */}
-                    <div className="settings-resource-impact-box">
-                      <div className="resource-impact-header">
-                        <Cpu size={18} />
-                        <span>System Resource & Hardware Impact Notes</span>
+                    {/* Slim Resource Guidance Banner */}
+                    <div className="settings-resource-banner">
+                      <div className="resource-banner-left">
+                        <Cpu size={16} style={{ color: '#60a5fa', flexShrink: 0 }} />
+                        <span>
+                          <strong>Hardware Guideline:</strong> For 2-core / 2GB RAM LXC containers & desktops, keep <strong>Parallel Workers ≤ 2</strong> and <strong>Queue Limit ≤ 8</strong> to avoid CPU spikes and system freezes.
+                        </span>
                       </div>
-                      <p className="resource-impact-desc">
-                        Background scraping and media archiving involve concurrent network streams, cryptographic hashing, SQLite transactions, and disk I/O writes. Configure these parameters to match your host/LXC hardware capacity to prevent system freezes:
-                      </p>
-
-                      <div className="resource-impact-grid">
-                        <div className="resource-impact-card">
-                          <div>
-                            <strong>Parallel Workers</strong>
-                            <span className="impact-badge high">High CPU / IO Impact</span>
-                          </div>
-                          <div style={{ marginTop: '6px', color: 'var(--text-muted)' }}>
-                            <strong>1 Worker:</strong> Safest for low-RAM or single-core LXC containers.<br />
-                            <strong>2 Workers (Default):</strong> Optimal balance of speed and stability for 2-core Proxmox LXCs & workstations.<br />
-                            <span style={{ color: '#f87171' }}><strong>3–4 Workers:</strong> Turbo speed, but generates heavy CPU and disk I/O load. Can freeze low-spec machines.</span>
-                          </div>
-                        </div>
-
-                        <div className="resource-impact-card">
-                          <div>
-                            <strong>Max Queue Limit</strong>
-                            <span className="impact-badge medium">RAM & SQLite Load</span>
-                          </div>
-                          <div style={{ marginTop: '6px', color: 'var(--text-muted)' }}>
-                            <strong>4 – 8 Jobs (Default):</strong> Keeps background memory footprint low (~150 MB – 200 MB RAM).<br />
-                            <span style={{ color: '#fbbf24' }}><strong>12+ Jobs:</strong> Holding many queued profile scraping tasks increases active memory and database lock overhead.</span>
-                          </div>
-                        </div>
-
-                        <div className="resource-impact-card">
-                          <div>
-                            <strong>Rate Limit Delay</strong>
-                            <span className="impact-badge low">Anti-Ban Protection</span>
-                          </div>
-                          <div style={{ marginTop: '6px', color: 'var(--text-muted)' }}>
-                            <strong>2.5s – 4.0s (Default: 3.0s):</strong> Prevents Instagram HTTP 429 rate-limiting bans and eliminates CPU-spinning polling loops.<br />
-                            <span style={{ color: '#f87171' }}>Delays below 1.5s risk immediate temporary session blocks.</span>
-                          </div>
-                        </div>
-
-                        <div className="resource-impact-card">
-                          <div>
-                            <strong>Batch Scraping Depth</strong>
-                            <span className="impact-badge low">Initial Sync Memory</span>
-                          </div>
-                          <div style={{ marginTop: '6px', color: 'var(--text-muted)' }}>
-                            <strong>Uncapped:</strong> Retrieves entire post history. Large accounts (5k+ posts) momentarily buffer more metadata before saving.<br />
-                            <strong>100–200 Posts:</strong> Best for rapid, lightweight synchronization on resource-constrained containers.
-                          </div>
-                        </div>
-                      </div>
+                      <button
+                        type="button"
+                        className="resource-banner-toggle"
+                        onClick={() => setShowResourceGuide(!showResourceGuide)}
+                      >
+                        {showResourceGuide ? 'Hide Details' : 'View Impact Guide'}
+                      </button>
                     </div>
+
+                    {/* Expandable Balanced Resource Details Drawer */}
+                    {showResourceGuide && (
+                      <div className="resource-guide-drawer">
+                        <div className="resource-guide-card">
+                          <div className="resource-guide-card-header">
+                            <strong>Parallel Workers</strong>
+                            <span className="impact-badge high">High CPU / IO</span>
+                          </div>
+                          <div>
+                            • <strong>1 Worker:</strong> Safest for 1-core / low-RAM LXC.<br />
+                            • <strong>2 Workers:</strong> Recommended default.<br />
+                            • <span style={{ color: '#f87171' }}><strong>3–4:</strong> Heavy I/O. May freeze low-spec systems.</span>
+                          </div>
+                        </div>
+
+                        <div className="resource-guide-card">
+                          <div className="resource-guide-card-header">
+                            <strong>Max Queue Limit</strong>
+                            <span className="impact-badge medium">RAM & SQLite</span>
+                          </div>
+                          <div>
+                            • <strong>4–8 Jobs:</strong> Low RAM footprint (~150MB).<br />
+                            • <span style={{ color: '#fbbf24' }}><strong>12+ Jobs:</strong> Higher active memory & lock overhead.</span>
+                          </div>
+                        </div>
+
+                        <div className="resource-guide-card">
+                          <div className="resource-guide-card-header">
+                            <strong>Rate Limit Delay</strong>
+                            <span className="impact-badge low">Anti-Ban</span>
+                          </div>
+                          <div>
+                            • <strong>3.0s+ (Default):</strong> Safe against 429 blocks.<br />
+                            • <span style={{ color: '#f87171' }}><strong>&lt; 2.0s:</strong> Risk of temporary Instagram ban.</span>
+                          </div>
+                        </div>
+
+                        <div className="resource-guide-card">
+                          <div className="resource-guide-card-header">
+                            <strong>Batch Depth</strong>
+                            <span className="impact-badge low">Memory</span>
+                          </div>
+                          <div>
+                            • <strong>Uncapped:</strong> Full post history.<br />
+                            • <strong>100–200 Posts:</strong> Lightweight & faster sync.
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     <form onSubmit={handleSaveConfig}>
                       <div className="settings-form-group">
