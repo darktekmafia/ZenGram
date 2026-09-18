@@ -1,5 +1,11 @@
 # ZenGram - Distraction-Free Instagram Media Archiver & Feed Viewer
 
+> [!CAUTION]
+> ### 🛑 CRITICAL SECURITY NOTICE — DO NOT INSTALL OR DEPLOY
+> **A security issue has been identified with this project.**
+> **Please DO NOT install, deploy, or run ZenGram until security hardening has been completed.**
+> The maintainers are actively addressing the issue. A hardened release and update will be provided once resolved.
+
 **ZenGram** is a self-hosted, lightweight, and high-performance local web application designed for Linux (Fedora, Debian, Ubuntu, Proxmox LXC containers, and Arch Linux) to browse, archive, and save Instagram media (Photos, Videos, Reels, Multi-slide Carousels, and 24h Stories) with zero ads, true chronological ordering, and local storage integrity.
 
 ![ZenGram](assets/zengram.svg)
