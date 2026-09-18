@@ -88,8 +88,8 @@ def encrypt_secret(plaintext: Optional[str]) -> str:
         encrypted = cipher.encrypt(plaintext.encode("utf-8")).decode("utf-8")
         return f"enc:{encrypted}"
     except Exception as e:
-        logger.critical(f"FATAL: Error encrypting secret at rest: {e}")
-        raise RuntimeError(f"Encryption failed. Refusing to store unencrypted secret: {e}") from e
+        logger.critical("FATAL: Error encrypting secret at rest. Refusing to store unencrypted secret.")
+        raise RuntimeError("Encryption failed: Refusing to store unencrypted secret.") from e
 
 
 def decrypt_secret(ciphertext: Optional[str], raise_on_error: bool = False) -> str:
@@ -105,7 +105,7 @@ def decrypt_secret(ciphertext: Optional[str], raise_on_error: bool = False) -> s
         return decrypted
     except Exception as e:
         logger.critical(
-            f"FATAL: Decryption failed for encrypted credential: {e}. "
+            f"FATAL: Decryption failed for encrypted credential. "
             f"The current key at {SECRET_FILE_PATH} does not match the key used to encrypt this database."
         )
         if raise_on_error:

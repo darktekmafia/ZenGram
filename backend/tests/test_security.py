@@ -272,13 +272,27 @@ async def test_security_hardening():
             hop2_url = urllib.parse.urljoin(hop1_url, hop2_loc)
             assert hop2_url == "https://scontent.cdninstagram.com/v/t51/final.jpg", f"Expected proper relative resolution against hop1_url, got: {hop2_url}"
 
-            # 19. Verify End-to-End Pinned Proxy Request
-            # When authenticated, requesting an allowed public resource succeeds through proxy
-            client.cookies.set("zengram_token", token)
-            proxy_res = await client.get("/api/v1/proxy/image?url=https://www.instagram.com/static/images/ico/favicon.ico")
+            # 19. Verify End-to-End Pinned Proxy Request with Empty Disk Cache
+            import hashlib
+            from backend.app.config import settings
+            test_target_url = "https://www.instagram.com/static/images/ico/favicon.ico"
+            test_cache_key = hashlib.sha256(test_target_url.encode("utf-8")).hexdigest()
+            cache_file = settings.BASE_DIR / "storage" / "cache" / "images" / f"{test_cache_key}.jpg"
+            if cache_file.exists():
+                cache_file.unlink()
+
+            assert not cache_file.exists(), "Cache file must not exist before uncached network fetch test"
+
+            # Execute real uncached HTTPS request through proxy using pinned IP and SNI
+            proxy_res = await client.get(
+                f"/api/v1/proxy/image?url={test_target_url}",
+                headers={"Authorization": f"Bearer {token}"}
+            )
             assert proxy_res.status_code == 200, f"Expected 200 for proxy_res, got {proxy_res.status_code}: {proxy_res.text}"
             assert len(proxy_res.content) > 100
-            assert "image/" in proxy_res.headers.get("content-type", "")
+
+            # Confirm that the network fetch populated the disk cache
+            assert cache_file.exists(), "Cache file must be created by successful live HTTPS fetch"
 
     finally:
         await test_engine.dispose()
