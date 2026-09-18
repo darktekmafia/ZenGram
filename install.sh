@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# ZenGram - Automated Installer & Updater
-# Supports Fedora, Debian, Ubuntu, Proxmox LXC, Arch Linux, and generic Linux systems.
+# ==============================================================================
+#  ZenGram - Automated Installation & Update Engine
+#  Supports Fedora, Ubuntu, Debian, Proxmox LXC, Arch Linux, and generic Linux.
+# ==============================================================================
 
 set -e
 
@@ -14,6 +16,27 @@ CHECK_UPDATE_ONLY=0
 SKIP_DESKTOP=0
 NON_INTERACTIVE=0
 SKIP_RESTART=0
+
+# Detect color and terminal capabilities
+if [ -t 1 ] && [ -z "$NO_COLOR" ] && [ "$TERM" != "dumb" ]; then
+    CLR_CYAN="\033[38;5;39m"
+    CLR_PURPLE="\033[38;5;141m"
+    CLR_GREEN="\033[38;5;42m"
+    CLR_YELLOW="\033[38;5;214m"
+    CLR_RED="\033[38;5;203m"
+    CLR_GRAY="\033[38;5;244m"
+    CLR_BOLD="\033[1m"
+    CLR_RESET="\033[0m"
+else
+    CLR_CYAN=""
+    CLR_PURPLE=""
+    CLR_GREEN=""
+    CLR_YELLOW=""
+    CLR_RED=""
+    CLR_GRAY=""
+    CLR_BOLD=""
+    CLR_RESET=""
+fi
 
 # Parse CLI arguments
 while [[ "$#" -gt 0 ]]; do
@@ -49,13 +72,15 @@ while [[ "$#" -gt 0 ]]; do
             shift
             ;;
         --help|-h)
+            echo "ZenGram Installation & Update Engine"
+            echo ""
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
             echo "  --update            Update existing installation, rebuild assets, and restart service"
             echo "  --web-update        Non-interactive headless update for Web UI update manager"
             echo "  --non-interactive   Run without prompting for user interaction or GUI shortcuts"
-            echo "  --no-restart        Compile dependencies and build bundle without restarting systemd service"
+            echo "  --no-restart        Compile dependencies and build bundle without restarting service"
             echo "  --check-update      Check if new updates are available from Git remote"
             echo "  --host <IP>         Bind host IP for web interface (default: 0.0.0.0)"
             echo "  --port <PORT>       Bind port for web interface (default: 8484)"
@@ -71,147 +96,254 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
-echo "============================================================"
-echo "          ZenGram - Linux Installation & Update Engine      "
-echo "============================================================"
+# Print ZenGram ASCII Banner
+print_banner() {
+    printf "${CLR_PURPLE}${CLR_BOLD}"
+    cat << "EOF"
+  ███████╗███████╗███╗   ██╗ ██████╗ ██████╗  █████╗ ███╗   ███╗
+  ╚══███╔╝██╔════╝████╗  ██║██╔════╝ ██╔══██╗██╔══██╗████╗ ████║
+    ███╔╝ █████╗  ██╔██╗ ██║██║  ███╗██████╔╝███████║██╔████╔██║
+   ███╔╝  ██╔══╝  ██║╚██╗██║██║   ██║██╔══██╗██╔══██║██║╚██╔╝██║
+  ███████╗███████╗██║ ╚████║╚██████╔╝██║  ██║██║  ██║██║ ╚═╝ ██║
+  ╚══════╝╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝
+EOF
+    printf "${CLR_RESET}"
+    printf "${CLR_GRAY}   Distraction-Free Instagram Media Archiver & Chronological Feed Viewer${CLR_RESET}\n\n"
+}
 
-# Check Update Mode Only
+# Distro and Environment Detection
+detect_environment() {
+    DISTRO_PRETTY="Linux"
+    if [ -f "/etc/os-release" ]; then
+        DISTRO_PRETTY=$(grep "^PRETTY_NAME=" /etc/os-release | cut -d= -f2 | tr -d '"')
+    fi
+
+    IS_ROOT=0
+    if [ "$(id -u)" -eq 0 ]; then
+        IS_ROOT=1
+        RUNNER_USER="root"
+    else
+        RUNNER_USER="$(whoami 2>/dev/null || echo 'user')"
+    fi
+
+    CONTAINER_TYPE="Bare-Metal / VM"
+    if [ -f "/.dockerenv" ]; then
+        CONTAINER_TYPE="Docker Container"
+    elif [ -f "/proc/1/environ" ] && grep -qa "container=lxc" /proc/1/environ 2>/dev/null; then
+        CONTAINER_TYPE="Proxmox LXC Container"
+    elif systemd-detect-virt -c &>/dev/null; then
+        CONTAINER_TYPE="LXC / Container"
+    fi
+
+    ARCH=$(uname -m 2>/dev/null || echo "x86_64")
+    CORES=$(nproc 2>/dev/null || echo "1")
+    RAM_TOTAL="N/A"
+    if [ -f "/proc/meminfo" ]; then
+        KB=$(grep "MemTotal:" /proc/meminfo | awk '{print $2}')
+        if [ -n "$KB" ]; then
+            RAM_TOTAL="$(awk "BEGIN {printf \"%.1f GB\", $KB/1048576}")"
+        fi
+    fi
+}
+
+print_banner
+detect_environment
+
+# Quick Check Update Mode Only
 if [ "$CHECK_UPDATE_ONLY" -eq 1 ]; then
-    echo "[*] Checking for updates from Git repository..."
+    printf "${CLR_CYAN}[*] Checking for updates from Git repository...${CLR_RESET}\n"
     if [ -d ".git" ]; then
         git fetch origin main --quiet 2>/dev/null || true
         LOCAL_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
         REMOTE_COMMIT=$(git rev-parse --short origin/main 2>/dev/null || echo "$LOCAL_COMMIT")
         if [ "$LOCAL_COMMIT" != "$REMOTE_COMMIT" ]; then
-            echo "[!] Update available! (Local: $LOCAL_COMMIT, Remote: $REMOTE_COMMIT)"
-            echo "[*] Run '$0 --update' to apply latest changes."
+            printf "${CLR_YELLOW}[!] Update available! (Local: %s, Upstream: %s)${CLR_RESET}\n" "$LOCAL_COMMIT" "$REMOTE_COMMIT"
+            printf "${CLR_CYAN}[*] Run '$0 --update' to apply latest changes.${CLR_RESET}\n"
             exit 2
         else
-            echo "[✓] ZenGram is up to date (Commit: $LOCAL_COMMIT)."
+            printf "${CLR_GREEN}[✓] ZenGram is already up to date (Commit: %s).${CLR_RESET}\n" "$LOCAL_COMMIT"
             exit 0
         fi
     else
-        echo "[!] Not a git repository. Version checking skipped."
+        printf "${CLR_YELLOW}[!] Not a git repository. Version checking skipped.${CLR_RESET}\n"
         exit 0
     fi
 fi
 
+# Print Environment Summary Card
+printf "${CLR_CYAN}╭─────────────────────────────────────────────────────────────────────────────╮${CLR_RESET}\n"
+printf "${CLR_CYAN}│${CLR_RESET}  ${CLR_BOLD}Operating System:${CLR_RESET}   %-54s ${CLR_CYAN}│${CLR_RESET}\n" "$DISTRO_PRETTY"
+printf "${CLR_CYAN}│${CLR_RESET}  ${CLR_BOLD}Environment:${CLR_RESET}        %-54s ${CLR_CYAN}│${CLR_RESET}\n" "$CONTAINER_TYPE ($RUNNER_USER)"
+printf "${CLR_CYAN}│${CLR_RESET}  ${CLR_BOLD}Hardware Specs:${CLR_RESET}     %-54s ${CLR_CYAN}│${CLR_RESET}\n" "$ARCH • $CORES CPU Cores • $RAM_TOTAL RAM"
+printf "${CLR_CYAN}│${CLR_RESET}  ${CLR_BOLD}Target Endpoint:${CLR_RESET}    %-54s ${CLR_CYAN}│${CLR_RESET}\n" "http://$APP_HOST:$APP_PORT"
 if [ "$IS_UPDATE" -eq 1 ]; then
-    echo "[*] Mode: Updating existing installation..."
-    if [ -d ".git" ]; then
-        echo "[*] Pulling latest changes from Git..."
-        git pull --quiet 2>/dev/null || echo "[!] Notice: Git pull skipped (working tree clean or no upstream)."
-    fi
+    printf "${CLR_CYAN}│${CLR_RESET}  ${CLR_BOLD}Execution Mode:${CLR_RESET}     %-54s ${CLR_CYAN}│${CLR_RESET}\n" "⚡ Software Update & Asset Rebuild"
 else
-    echo "[*] Mode: Initial Installation & Setup..."
+    printf "${CLR_CYAN}│${CLR_RESET}  ${CLR_BOLD}Execution Mode:${CLR_RESET}     %-54s ${CLR_CYAN}│${CLR_RESET}\n" "✨ Fresh Installation & Service Deployment"
+fi
+printf "${CLR_CYAN}╰─────────────────────────────────────────────────────────────────────────────╯${CLR_RESET}\n\n"
+
+PREV_COMMIT=""
+if [ -d ".git" ]; then
+    PREV_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
 fi
 
-# Detect Package Manager and Distro
-detect_and_install_deps() {
-    echo "[1/6] Detecting Linux distribution and verifying system dependencies..."
-    
-    IS_ROOT=0
-    if [ "$(id -u)" -eq 0 ]; then
-        IS_ROOT=1
-        SUDO_PREFIX=""
+if [ "$IS_UPDATE" -eq 1 ]; then
+    printf "${CLR_CYAN}[*] Pulling latest changes from Git repository...${CLR_RESET}\n"
+    if [ -d ".git" ]; then
+        git pull --quiet 2>/dev/null || printf "${CLR_YELLOW}[!] Notice: Git pull skipped (working tree clean or no upstream).${CLR_RESET}\n"
+    fi
+fi
+
+# Track changes for smart fast-path updating
+REQ_CHANGED=1
+PKG_CHANGED=1
+if [ "$IS_UPDATE" -eq 1 ] && [ -n "$PREV_COMMIT" ] && [ -d ".git" ]; then
+    if git diff --name-only "$PREV_COMMIT" HEAD 2>/dev/null | grep -q "backend/requirements.txt"; then
+        REQ_CHANGED=1
     else
-        SUDO_PREFIX="sudo"
+        REQ_CHANGED=0
     fi
 
-    if command -v dnf &> /dev/null; then
-        PM="dnf"
-    elif command -v apt-get &> /dev/null; then
-        PM="apt"
-    elif command -v pacman &> /dev/null; then
-        PM="pacman"
-    elif command -v zypper &> /dev/null; then
-        PM="zypper"
+    if git diff --name-only "$PREV_COMMIT" HEAD 2>/dev/null | grep -q "frontend/package.json"; then
+        PKG_CHANGED=1
     else
-        echo "[!] Unknown package manager. Please ensure python3, python3-pip, nodejs, npm, ffmpeg, sqlite3 are installed."
-        return 0
+        PKG_CHANGED=0
     fi
+fi
 
-    echo "[*] System package manager: $PM (Running as: $([ $IS_ROOT -eq 1 ] && echo 'root' || echo 'non-root user'))"
-    
-    # Required core system packages
-    PKGS_TO_INSTALL=()
-    if ! command -v python3 &> /dev/null; then PKGS_TO_INSTALL+=("python3"); fi
-    if ! command -v pip3 &> /dev/null && ! python3 -m pip --version &> /dev/null; then 
-        if [ "$PM" = "apt" ]; then 
-            PKGS_TO_INSTALL+=("python3-pip" "python3-venv" "python3-dev"); 
-        else 
-            PKGS_TO_INSTALL+=("python3-pip"); 
+# ==============================================================================
+# [1/6] System Dependencies
+# ==============================================================================
+printf "\n${CLR_PURPLE}${CLR_BOLD}[1/6] Detecting Linux package manager and verifying dependencies...${CLR_RESET}\n"
+
+if [ "$IS_ROOT" -eq 1 ]; then
+    SUDO_PREFIX=""
+else
+    SUDO_PREFIX="sudo"
+fi
+
+PM="unknown"
+if command -v dnf &> /dev/null; then
+    PM="dnf"
+elif command -v apt-get &> /dev/null; then
+    PM="apt"
+elif command -v pacman &> /dev/null; then
+    PM="pacman"
+elif command -v zypper &> /dev/null; then
+    PM="zypper"
+fi
+
+if [ "$PM" = "unknown" ]; then
+    printf "${CLR_YELLOW}[!] Notice: Package manager not recognized. Ensuring essential binaries exist...${CLR_RESET}\n"
+else
+    printf "${CLR_GRAY}[*] Package manager detected: %s (Runner: %s)${CLR_RESET}\n" "$PM" "$RUNNER_USER"
+fi
+
+PKGS_TO_INSTALL=()
+if ! command -v python3 &> /dev/null; then PKGS_TO_INSTALL+=("python3"); fi
+if ! command -v pip3 &> /dev/null && ! python3 -m pip --version &> /dev/null; then 
+    if [ "$PM" = "apt" ]; then 
+        PKGS_TO_INSTALL+=("python3-pip" "python3-venv" "python3-dev")
+    else 
+        PKGS_TO_INSTALL+=("python3-pip")
+    fi
+fi
+if ! command -v node &> /dev/null; then PKGS_TO_INSTALL+=("nodejs"); fi
+if ! command -v npm &> /dev/null; then PKGS_TO_INSTALL+=("npm"); fi
+if ! command -v ffmpeg &> /dev/null; then PKGS_TO_INSTALL+=("ffmpeg"); fi
+if ! command -v sqlite3 &> /dev/null; then PKGS_TO_INSTALL+=("sqlite3"); fi
+if ! command -v git &> /dev/null; then PKGS_TO_INSTALL+=("git"); fi
+
+# Debian/Ubuntu container headless Chromium libraries
+if [ "$PM" = "apt" ]; then
+    CHROMIUM_DEPS=("libnss3" "libnspr4" "libatk1.0-0" "libatk-bridge2.0-0" "libcups2" "libdrm2" "libxkbcommon0" "libxcomposite1" "libxdamage1" "libxfixes3" "libxrandr2" "libgbm1" "libpango-1.0-0" "libcairo2")
+    for dep in "${CHROMIUM_DEPS[@]}"; do
+        if ! dpkg -s "$dep" &> /dev/null && ! dpkg -s "${dep}t64" &> /dev/null; then
+            PKGS_TO_INSTALL+=("$dep")
         fi
-    fi
-    if ! command -v node &> /dev/null; then PKGS_TO_INSTALL+=("nodejs"); fi
-    if ! command -v npm &> /dev/null; then PKGS_TO_INSTALL+=("npm"); fi
-    if ! command -v ffmpeg &> /dev/null; then PKGS_TO_INSTALL+=("ffmpeg"); fi
-    if ! command -v sqlite3 &> /dev/null; then PKGS_TO_INSTALL+=("sqlite3"); fi
-    if ! command -v git &> /dev/null; then PKGS_TO_INSTALL+=("git"); fi
+    done
+fi
 
-    # Core dependencies plus headless Chromium libraries for container environments
+if [ ${#PKGS_TO_INSTALL[@]} -gt 0 ]; then
+    printf "${CLR_CYAN}[*] Installing missing system packages: %s${CLR_RESET}\n" "${PKGS_TO_INSTALL[*]}"
     if [ "$PM" = "apt" ]; then
-        CHROMIUM_DEPS=("libnss3" "libnspr4" "libatk1.0-0" "libatk-bridge2.0-0" "libcups2" "libdrm2" "libxkbcommon0" "libxcomposite1" "libxdamage1" "libxfixes3" "libxrandr2" "libgbm1" "libpango-1.0-0" "libcairo2")
-        for dep in "${CHROMIUM_DEPS[@]}"; do
-            if ! dpkg -s "$dep" &> /dev/null && ! dpkg -s "${dep}t64" &> /dev/null; then
-                PKGS_TO_INSTALL+=("$dep")
-            fi
-        done
+        $SUDO_PREFIX apt-get update -qq
+        DEBIAN_FRONTEND=noninteractive $SUDO_PREFIX apt-get install -y --no-install-recommends "${PKGS_TO_INSTALL[@]}"
+    elif [ "$PM" = "dnf" ]; then
+        $SUDO_PREFIX dnf install -y "${PKGS_TO_INSTALL[@]}"
+    elif [ "$PM" = "pacman" ]; then
+        $SUDO_PREFIX pacman -S --noconfirm "${PKGS_TO_INSTALL[@]}"
+    elif [ "$PM" = "zypper" ]; then
+        $SUDO_PREFIX zypper install -y "${PKGS_TO_INSTALL[@]}"
     fi
+    printf "${CLR_GREEN}[✓] System packages installed successfully.${CLR_RESET}\n"
+else
+    printf "${CLR_GREEN}[✓] All essential system dependencies are present and verified.${CLR_RESET}\n"
+fi
 
-    if [ ${#PKGS_TO_INSTALL[@]} -gt 0 ]; then
-        echo "[*] Installing missing system packages: ${PKGS_TO_INSTALL[*]}"
-        if [ "$PM" = "apt" ]; then
-            $SUDO_PREFIX apt-get update -qq
-            DEBIAN_FRONTEND=noninteractive $SUDO_PREFIX apt-get install -y --no-install-recommends "${PKGS_TO_INSTALL[@]}"
-        elif [ "$PM" = "dnf" ]; then
-            $SUDO_PREFIX dnf install -y "${PKGS_TO_INSTALL[@]}"
-        elif [ "$PM" = "pacman" ]; then
-            $SUDO_PREFIX pacman -S --noconfirm "${PKGS_TO_INSTALL[@]}"
-        elif [ "$PM" = "zypper" ]; then
-            $SUDO_PREFIX zypper install -y "${PKGS_TO_INSTALL[@]}"
-        fi
-        echo "[✓] Missing system dependencies installed successfully."
-    else
-        echo "[✓] All essential system dependencies are present."
-    fi
-}
+# ==============================================================================
+# [2/6] Python Virtual Environment (.venv)
+# ==============================================================================
+printf "\n${CLR_PURPLE}${CLR_BOLD}[2/6] Configuring Python virtual environment (.venv)...${CLR_RESET}\n"
 
-detect_and_install_deps
-
-# 2. Python Virtual Environment (.venv)
-echo "[2/6] Setting up Python virtual environment (.venv)..."
 if [ ! -d ".venv" ]; then
     python3 -m venv .venv
-    echo "[✓] Virtual environment initialized."
+    printf "${CLR_GREEN}[✓] Created fresh virtual environment (.venv).${CLR_RESET}\n"
+else
+    printf "${CLR_GREEN}[✓] Existing virtual environment (.venv) verified.${CLR_RESET}\n"
 fi
 
+# Activate virtual environment
 source .venv/bin/activate
 pip install --upgrade pip --quiet
 
-# 3. Install Python Dependencies & Headless Browser
-echo "[3/6] Installing backend Python packages and verifying browser engine..."
-pip install -r backend/requirements.txt --quiet
-if [ -d "$HOME/.cache/ms-playwright/chromium-"* ] || [ -d "/root/.cache/ms-playwright/chromium-"* ] 2>/dev/null; then
-    echo "[✓] Playwright Chromium browser already installed."
-else
-    echo "[*] Installing Playwright Chromium browser binaries..."
-    playwright install chromium 2>/dev/null || true
-    echo "[✓] Browser engine installed."
-fi
-echo "[✓] Backend dependencies and browser engine ready."
+# ==============================================================================
+# [3/6] Backend Packages & Playwright Browser Engine
+# ==============================================================================
+printf "\n${CLR_PURPLE}${CLR_BOLD}[3/6] Installing backend Python packages & browser engine...${CLR_RESET}\n"
 
-# 4. Build Frontend Assets (Vite)
-echo "[4/6] Installing frontend dependencies and compiling production bundle..."
+if [ "$IS_UPDATE" -eq 1 ] && [ "$REQ_CHANGED" -eq 0 ]; then
+    printf "${CLR_CYAN}[⚡ Fast-Path] Backend requirements.txt unchanged. Skipping pip package re-install.${CLR_RESET}\n"
+else
+    printf "${CLR_GRAY}[*] Installing Python packages from backend/requirements.txt...${CLR_RESET}\n"
+    pip install -r backend/requirements.txt --quiet
+    printf "${CLR_GREEN}[✓] Python packages installed and up to date.${CLR_RESET}\n"
+fi
+
+# Verify Playwright Chromium binary
+if [ -d "$HOME/.cache/ms-playwright/chromium-"* ] || [ -d "/root/.cache/ms-playwright/chromium-"* ] 2>/dev/null; then
+    printf "${CLR_GREEN}[✓] Playwright Chromium browser binary verified.${CLR_RESET}\n"
+else
+    printf "${CLR_CYAN}[*] Downloading Playwright Chromium browser binaries...${CLR_RESET}\n"
+    playwright install chromium 2>/dev/null || true
+    printf "${CLR_GREEN}[✓] Playwright Chromium browser installed.${CLR_RESET}\n"
+fi
+
+# ==============================================================================
+# [4/6] Production Frontend Bundle (Vite)
+# ==============================================================================
+printf "\n${CLR_PURPLE}${CLR_BOLD}[4/6] Compiling production frontend bundle (Vite)...${CLR_RESET}\n"
+
 cd "$PROJECT_DIR/frontend"
-npm install --quiet
+if [ "$IS_UPDATE" -eq 1 ] && [ "$PKG_CHANGED" -eq 0 ] && [ -d "node_modules" ]; then
+    printf "${CLR_CYAN}[⚡ Fast-Path] frontend/package.json unchanged. Skipping npm package re-install.${CLR_RESET}\n"
+else
+    printf "${CLR_GRAY}[*] Installing frontend dependencies via npm...${CLR_RESET}\n"
+    npm install --quiet
+fi
+
+printf "${CLR_GRAY}[*] Compiling optimized React bundle...${CLR_RESET}\n"
 npm run build --quiet
 cd "$PROJECT_DIR"
-echo "[✓] Frontend production bundle compiled cleanly in 'frontend/dist'."
+printf "${CLR_GREEN}[✓] Production frontend bundle compiled successfully in 'frontend/dist/'.${CLR_RESET}\n"
 
-# 5. Desktop Launcher (If GUI / Desktop is present)
+# ==============================================================================
+# [5/6] Desktop Launcher & Application Shortcuts
+# ==============================================================================
+printf "\n${CLR_PURPLE}${CLR_BOLD}[5/6] Configuring Desktop shortcuts and application icons...${CLR_RESET}\n"
+
 if [ "$SKIP_DESKTOP" -eq 0 ] && [ -n "$DISPLAY" -o -d "$HOME/Desktop" -o -d "$HOME/.local/share/applications" ]; then
-    echo "[5/6] Installing Desktop shortcuts and app icons..."
     mkdir -p "$HOME/Desktop" "$HOME/.local/share/applications" 2>/dev/null || true
     
     DESKTOP_ENTRY="$HOME/.local/share/applications/zengram.desktop"
@@ -234,23 +366,25 @@ EOF
     if [ -d "$HOME/Desktop" ]; then
         cp "$DESKTOP_ENTRY" "$HOME/Desktop/ZenGram.desktop" 2>/dev/null || true
         chmod +x "$HOME/Desktop/ZenGram.desktop" 2>/dev/null || true
-        echo "[✓] Desktop shortcut created at ~/Desktop/ZenGram.desktop"
+        printf "${CLR_GREEN}[✓] Desktop launcher shortcut created at ~/Desktop/ZenGram.desktop${CLR_RESET}\n"
     fi
 else
-    echo "[5/6] Headless / Container environment detected. Skipping Desktop GUI shortcut."
+    printf "${CLR_GRAY}[*] Headless / Container environment detected. Skipped Desktop GUI launcher.${CLR_RESET}\n"
 fi
 
-# 6. Systemd Service Integration (Root / LXC vs User Session)
-echo "[6/6] Configuring and starting Systemd service..."
+# ==============================================================================
+# [6/6] Systemd Service Integration & Security Hardening
+# ==============================================================================
+printf "\n${CLR_PURPLE}${CLR_BOLD}[6/6] Hardening permissions and starting Systemd service...${CLR_RESET}\n"
 
-# Stop any legacy instasave service if running
-if [ "$(id -u)" -eq 0 ]; then
-    systemctl stop instasave.service 2>/dev/null || true
-    systemctl disable instasave.service 2>/dev/null || true
-else
-    systemctl --user stop instasave.service 2>/dev/null || true
-    systemctl --user disable instasave.service 2>/dev/null || true
-fi
+# Enforce secure POSIX permissions (umask 0077, 0700 dirs, 0600 keys/db)
+chmod 700 "$PROJECT_DIR/storage" 2>/dev/null || true
+mkdir -p "$PROJECT_DIR/storage/backups" 2>/dev/null || true
+chmod 700 "$PROJECT_DIR/storage/backups" 2>/dev/null || true
+chmod 600 "$PROJECT_DIR"/zengram.db* 2>/dev/null || true
+mkdir -p "$HOME/.config/zengram"
+chmod 700 "$HOME/.config/zengram" 2>/dev/null || true
+chmod 600 "$HOME/.config/zengram"/jwt_secret.key 2>/dev/null || true
 
 SERVICE_CONTENT="[Unit]
 Description=ZenGram Local Web Service
@@ -268,24 +402,26 @@ Environment=PYTHONUNBUFFERED=1
 [Install]
 WantedBy=multi-user.target default.target"
 
-# Enforce secure owner-only permissions on database, storage, and secrets
-chmod 700 "$PROJECT_DIR/storage" 2>/dev/null || true
-chmod 600 "$PROJECT_DIR"/zengram.db* 2>/dev/null || true
-mkdir -p "$HOME/.config/zengram"
-chmod 700 "$HOME/.config/zengram" 2>/dev/null || true
-chmod 600 "$HOME/.config/zengram"/jwt_secret.key 2>/dev/null || true
+# Stop any legacy service names
+if [ "$IS_ROOT" -eq 1 ]; then
+    systemctl stop instasave.service 2>/dev/null || true
+    systemctl disable instasave.service 2>/dev/null || true
+else
+    systemctl --user stop instasave.service 2>/dev/null || true
+    systemctl --user disable instasave.service 2>/dev/null || true
+fi
 
-if [ "$(id -u)" -eq 0 ]; then
-    # Running as Root (e.g. Proxmox LXC Container or Dedicated Linux Server)
+if [ "$IS_ROOT" -eq 1 ]; then
+    # Running as Root (e.g. Proxmox LXC Container or Dedicated Server)
     SYSTEMD_PATH="/etc/systemd/system/zengram.service"
     echo "$SERVICE_CONTENT" > "$SYSTEMD_PATH"
     systemctl daemon-reload
     systemctl enable --now zengram.service
     if [ "$SKIP_RESTART" -eq 0 ]; then
         systemctl restart zengram.service
-        echo "[✓] System-level service 'zengram.service' enabled and active."
+        printf "${CLR_GREEN}[✓] Systemd root service 'zengram.service' enabled and active.${CLR_RESET}\n"
     else
-        echo "[✓] System-level service 'zengram.service' configured (restart deferred)."
+        printf "${CLR_GREEN}[✓] Systemd root service 'zengram.service' configured (restart deferred).${CLR_RESET}\n"
     fi
 else
     # Running as Standard User (e.g. Fedora Workstation)
@@ -296,13 +432,50 @@ else
     systemctl --user enable --now zengram.service
     if [ "$SKIP_RESTART" -eq 0 ]; then
         systemctl --user restart zengram.service
-        echo "[✓] User-level service 'zengram.service' enabled and active."
+        printf "${CLR_GREEN}[✓] Systemd user service 'zengram.service' enabled and active.${CLR_RESET}\n"
     else
-        echo "[✓] User-level service 'zengram.service' configured (restart deferred)."
+        printf "${CLR_GREEN}[✓] Systemd user service 'zengram.service' configured (restart deferred).${CLR_RESET}\n"
     fi
 fi
 
-echo "============================================================"
-echo "   [✓] ZenGram installation & configuration complete!"
-echo "   Access the Web UI at: http://${APP_HOST}:${APP_PORT}"
-echo "============================================================"
+# Detect local LAN IP for display
+LAN_IP="127.0.0.1"
+if command -v ip &>/dev/null; then
+    DETECTED_IP=$(ip -4 addr show scope global | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -n 1 || true)
+    if [ -n "$DETECTED_IP" ]; then
+        LAN_IP="$DETECTED_IP"
+    fi
+elif command -v hostname &>/dev/null; then
+    DETECTED_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
+    if [ -n "$DETECTED_IP" ]; then
+        LAN_IP="$DETECTED_IP"
+    fi
+fi
+
+# ==============================================================================
+# Completion Card & Quick Tips
+# ==============================================================================
+printf "\n${CLR_GREEN}${CLR_BOLD}"
+printf "╭─────────────────────────────────────────────────────────────────────────────╮\n"
+printf "│                      ✨ ZenGram Setup Successfully Complete!                │\n"
+printf "├─────────────────────────────────────────────────────────────────────────────┤\n"
+printf "${CLR_RESET}"
+printf "  ${CLR_BOLD}Local Web UI:${CLR_RESET}        ${CLR_CYAN}http://localhost:%s${CLR_RESET}\n" "$APP_PORT"
+if [ "$LAN_IP" != "127.0.0.1" ]; then
+printf "  ${CLR_BOLD}Network Access:${CLR_RESET}      ${CLR_CYAN}http://%s:%s${CLR_RESET}\n" "$LAN_IP" "$APP_PORT"
+fi
+printf "  ${CLR_BOLD}Active Service:${CLR_RESET}      zengram.service (Running in background)\n"
+printf "  ${CLR_BOLD}Security & Key:${CLR_RESET}      AES-256 Fernet Encryption at Rest (Permissions 0600)\n\n"
+printf "  ${CLR_PURPLE}${CLR_BOLD}Useful Management Commands:${CLR_RESET}\n"
+if [ "$IS_ROOT" -eq 1 ]; then
+printf "  • ${CLR_BOLD}Check Service Logs:${CLR_RESET}  journalctl -u zengram.service -f\n"
+printf "  • ${CLR_BOLD}Restart Service:${CLR_RESET}     systemctl restart zengram.service\n"
+else
+printf "  • ${CLR_BOLD}Check Service Logs:${CLR_RESET}  journalctl --user -u zengram.service -f\n"
+printf "  • ${CLR_BOLD}Restart Service:${CLR_RESET}     systemctl --user restart zengram.service\n"
+fi
+printf "  • ${CLR_BOLD}Run Security Test:${CLR_RESET}   source .venv/bin/activate && python backend/tests/test_security.py\n"
+printf "  • ${CLR_BOLD}Update Project:${CLR_RESET}      ./install.sh --update\n"
+printf "${CLR_GREEN}${CLR_BOLD}"
+printf "╰─────────────────────────────────────────────────────────────────────────────╯\n"
+printf "${CLR_RESET}\n"
