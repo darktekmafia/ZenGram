@@ -652,7 +652,7 @@ export default function App() {
     if (e) e.preventDefault()
     setSessionSaveStatus('saving')
     setSessionTestResult(null)
-    const targetUsername = sessionUsernameInput.trim().replace(/^@/, '') || userSession?.username || 'admin'
+    const targetUsername = sessionUsernameInput.trim().replace(/^@/, '') || (userSession?.username && userSession.username !== 'admin' ? userSession.username : '')
     try {
       const res = await fetch('/api/v1/auth/session', {
         method: 'POST',
@@ -663,6 +663,11 @@ export default function App() {
         })
       })
       if (res.ok) {
+        const savedData = await res.json()
+        setUserSession(savedData)
+        if (savedData.username && savedData.username !== 'admin') {
+          setSessionUsernameInput(savedData.username)
+        }
         await fetchUserSession()
         setSessionSaveStatus('success')
         
@@ -672,13 +677,19 @@ export default function App() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              username: targetUsername,
+              username: savedData.username || targetUsername,
               session_cookie: sessionInput
             })
           })
           if (testRes.ok) {
             const testData = await testRes.json()
             setSessionTestResult(testData)
+            if (testData.username && testData.username !== 'admin') {
+              setSessionUsernameInput(testData.username)
+            }
+            if (testData.profile_pic_url) {
+              await fetchUserSession()
+            }
           }
         } catch (testErr) {
           console.error('Error auto-testing session:', testErr)
@@ -696,17 +707,22 @@ export default function App() {
   const handleTestSession = async () => {
     setSessionTesting(true)
     setSessionTestResult(null)
+    const targetUsername = sessionUsernameInput.trim().replace(/^@/, '') || (userSession?.username && userSession.username !== 'admin' ? userSession.username : '')
     try {
       const res = await fetch('/api/v1/auth/session/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: userSession?.username || 'admin',
+          username: targetUsername,
           session_cookie: sessionInput
         })
       })
       const data = await res.json()
       setSessionTestResult(data)
+      if (data.is_valid && data.username && data.username !== 'admin') {
+        setSessionUsernameInput(data.username)
+        await fetchUserSession()
+      }
     } catch (err) {
       setSessionTestResult({ is_valid: false, message: 'Network error communicating with ZenGram server.' })
     } finally {

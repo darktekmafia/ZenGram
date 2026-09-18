@@ -227,33 +227,70 @@ async def get_current_session(db: AsyncSession = Depends(get_db)):
         await db.commit()
         await db.refresh(session)
     else:
-        # If profile_pic_url is missing, check if available in watched_profiles
-        if not session.profile_pic_url and session.username and session.username != "admin":
-            wp_res = await db.execute(select(WatchedProfile).where(WatchedProfile.username == session.username))
-            wp = wp_res.scalars().first()
-            if wp and wp.profile_pic_url:
-                session.profile_pic_url = wp.profile_pic_url
-                await db.commit()
-                await db.refresh(session)
+        # If username is generic admin or profile_pic_url is missing, auto-discover
+        has_real_cookie = session.session_cookie and session.session_cookie != "dummy_session_cookie"
+        if has_real_cookie and (not session.profile_pic_url or session.username == "admin"):
+            try:
+                from backend.app.services.scraper import InstagramScraperEngine
+                scraper = InstagramScraperEngine(session_cookie=session.session_cookie)
+                
+                # Check logged in user profile first
+                detected = await scraper.get_logged_in_user_profile()
+                if detected:
+                    if detected.get("username") and session.username in ("admin", "", None):
+                        session.username = detected["username"]
+                    if detected.get("profile_pic_url"):
+                        session.profile_pic_url = detected["profile_pic_url"]
+                    await db.commit()
+                    await db.refresh(session)
+                elif session.username and session.username != "admin":
+                    wp_res = await db.execute(select(WatchedProfile).where(WatchedProfile.username == session.username))
+                    wp = wp_res.scalars().first()
+                    if wp and wp.profile_pic_url:
+                        session.profile_pic_url = wp.profile_pic_url
+                        await db.commit()
+                        await db.refresh(session)
+                    else:
+                        prof_info = await scraper.get_user_profile(session.username)
+                        if prof_info and prof_info.get("profile_pic_url"):
+                            session.profile_pic_url = prof_info["profile_pic_url"]
+                            await db.commit()
+                            await db.refresh(session)
+            except Exception as e:
+                logger.warning(f"Error auto-discovering profile avatar on session retrieval: {e}")
     return session
 
 
 @router.post("/session", response_model=UserSessionResponse)
 async def create_session(data: UserSessionCreate, db: AsyncSession = Depends(get_db)):
     clean_cookie = data.session_cookie.strip().strip('"').strip("'")
-    clean_username = data.username.strip().lstrip("@").strip() or "admin"
+    clean_username = data.username.strip().lstrip("@").strip() if data.username else ""
 
-    # Fetch profile avatar if username is not generic 'admin'
     profile_pic = None
-    if clean_username and clean_username.lower() != "admin":
+    has_real_cookie = clean_cookie and clean_cookie != "dummy_session_cookie"
+
+    if has_real_cookie:
         try:
             from backend.app.services.scraper import InstagramScraperEngine
             scraper = InstagramScraperEngine(session_cookie=clean_cookie)
-            prof_info = await scraper.get_user_profile(clean_username)
-            if prof_info and prof_info.get("profile_pic_url"):
-                profile_pic = prof_info["profile_pic_url"]
+            
+            # If username is empty or admin, auto-discover from cookie
+            if not clean_username or clean_username.lower() == "admin":
+                detected = await scraper.get_logged_in_user_profile()
+                if detected and detected.get("username"):
+                    clean_username = detected["username"]
+                    profile_pic = detected.get("profile_pic_url")
+
+            # If username is set and profile pic not yet obtained, fetch profile
+            if clean_username and clean_username.lower() != "admin" and not profile_pic:
+                prof_info = await scraper.get_user_profile(clean_username)
+                if prof_info and prof_info.get("profile_pic_url"):
+                    profile_pic = prof_info["profile_pic_url"]
         except Exception as e:
             logger.warning(f"Error fetching profile avatar for {clean_username}: {e}")
+
+    if not clean_username:
+        clean_username = "admin"
 
     result = await db.execute(select(UserSession).order_by(UserSession.id.asc()))
     existing = result.scalars().first()
@@ -284,7 +321,7 @@ async def create_session(data: UserSessionCreate, db: AsyncSession = Depends(get
 @router.post("/session/test")
 async def test_instagram_session(data: UserSessionCreate):
     """Test if a given Instagram session cookie is valid and active with Instagram."""
-    from backend.app.services.scraper import parse_instagram_cookies, extract_user_id_from_cookies
+    from backend.app.services.scraper import parse_instagram_cookies, extract_user_id_from_cookies, InstagramScraperEngine
     clean_cookie = data.session_cookie.strip().strip('"').strip("'")
     cookies_dict = parse_instagram_cookies(clean_cookie)
     if not cookies_dict and not clean_cookie:
@@ -299,10 +336,24 @@ async def test_instagram_session(data: UserSessionCreate):
             "message": "The pasted cookie string does not appear to contain a valid Instagram sessionid token. Please copy the value from DevTools or use 'Log In via Browser Window'."
         }
 
+    detected_username = None
+    detected_pic = None
+    try:
+        scraper = InstagramScraperEngine(session_cookie=clean_cookie)
+        detected = await scraper.get_logged_in_user_profile()
+        if detected:
+            detected_username = detected.get("username")
+            detected_pic = detected.get("profile_pic_url")
+            user_id = detected.get("user_id") or user_id
+    except Exception as e:
+        logger.warning(f"Error testing session with Instagram: {e}")
+
     return {
         "is_valid": True,
         "pk": user_id,
-        "message": f"Session cookie format is valid (Associated User ID: {user_id})! Ready for scraping and sync."
+        "username": detected_username,
+        "profile_pic_url": detected_pic,
+        "message": f"Session cookie is active & verified! Connected as @{detected_username}." if detected_username else f"Session cookie format is valid (Associated User ID: {user_id})! Ready for scraping and sync."
     }
 
 

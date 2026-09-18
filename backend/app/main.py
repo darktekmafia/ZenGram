@@ -89,7 +89,11 @@ async def proxy_image(url: str = Query(...)):
                 return Response(
                     content=res.content,
                     media_type=res.headers.get("content-type", "image/jpeg"),
-                    headers={"Cache-Control": "public, max-age=86400, immutable"}
+                    headers={
+                        "Cache-Control": "public, max-age=86400, immutable",
+                        "Cross-Origin-Resource-Policy": "cross-origin",
+                        "Access-Control-Allow-Origin": "*",
+                    }
                 )
         except Exception:
             pass

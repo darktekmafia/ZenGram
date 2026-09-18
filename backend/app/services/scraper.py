@@ -208,41 +208,49 @@ class InstagramScraperEngine:
                 
                 profile_pic = None
                 try:
-                    profile_pic = await page.evaluate('''username => {
-                        const target = username.toLowerCase();
-                        const imgs = Array.from(document.querySelectorAll('img'));
-                        
-                        // 1. Exact match target username in alt attribute (e.g. alt="<username>'s profile picture")
-                        for (const img of imgs) {
-                            const alt = (img.getAttribute('alt') || '').toLowerCase();
-                            const src = img.getAttribute('src') || '';
-                            if (alt.includes(target) && (alt.includes('profile picture') || alt.includes('profile photo') || alt.includes('avatar'))) {
-                                if (src && !src.endsWith('.mp4') && (src.includes('fbcdn') || src.includes('instagram'))) return src;
+                    og_img = await page.get_attribute('meta[property="og:image"]', 'content')
+                    if og_img and ('fbcdn' in og_img or 'instagram' in og_img) and not og_img.endswith('.mp4'):
+                        profile_pic = og_img
+                except Exception:
+                    pass
+
+                if not profile_pic:
+                    try:
+                        profile_pic = await page.evaluate('''username => {
+                            const target = username.toLowerCase();
+                            const imgs = Array.from(document.querySelectorAll('img'));
+                            
+                            // 1. Exact match target username in alt attribute (e.g. alt="<username>'s profile picture")
+                            for (const img of imgs) {
+                                const alt = (img.getAttribute('alt') || '').toLowerCase();
+                                const src = img.getAttribute('src') || '';
+                                if (alt.includes(target) && (alt.includes('profile picture') || alt.includes('profile photo') || alt.includes('avatar'))) {
+                                    if (src && !src.endsWith('.mp4') && (src.includes('fbcdn') || src.includes('instagram'))) return src;
+                                }
                             }
-                        }
-                        
-                        // 2. Main header profile image (> 40px width and height, ignoring sidebar navbar 24x24)
-                        const headerImgs = Array.from(document.querySelectorAll('main header img, header [role="button"] img, main img'));
-                        for (const img of headerImgs) {
-                            const src = img.getAttribute('src') || '';
-                            const rect = img.getBoundingClientRect();
-                            if (rect.width >= 40 && rect.height >= 40 && src && !src.endsWith('.mp4') && (src.includes('fbcdn') || src.includes('instagram'))) {
-                                return src;
+                            
+                            // 2. Main header profile image (> 40px width and height, ignoring sidebar navbar 24x24)
+                            const headerImgs = Array.from(document.querySelectorAll('main header img, header [role="button"] img, main img'));
+                            for (const img of headerImgs) {
+                                const src = img.getAttribute('src') || '';
+                                const rect = img.getBoundingClientRect();
+                                if (rect.width >= 40 && rect.height >= 40 && src && !src.endsWith('.mp4') && (src.includes('fbcdn') || src.includes('instagram'))) {
+                                    return src;
+                                }
                             }
-                        }
-                        
-                        // 3. Fallback any profile image URL containing -19/ with width >= 40px
-                        for (const img of imgs) {
-                            const src = img.getAttribute('src') || '';
-                            const rect = img.getBoundingClientRect();
-                            if (src.includes('-19/') && rect.width >= 40 && !src.endsWith('.mp4') && (src.includes('fbcdn') || src.includes('instagram'))) {
-                                return src;
+                            
+                            // 3. Fallback any profile image URL containing -19/ with width >= 40px
+                            for (const img of imgs) {
+                                const src = img.getAttribute('src') || '';
+                                const rect = img.getBoundingClientRect();
+                                if (src.includes('-19/') && rect.width >= 40 && !src.endsWith('.mp4') && (src.includes('fbcdn') || src.includes('instagram'))) {
+                                    return src;
+                                }
                             }
-                        }
-                        return null;
-                    }''', username)
-                except Exception as e:
-                    logger.warning(f"Error extracting profile avatar for {username}: {e}")
+                            return null;
+                        }''', username)
+                    except Exception as e:
+                        logger.warning(f"Error extracting profile avatar for {username}: {e}")
                 
                 seen_codes = set()
                 posts = []
@@ -488,6 +496,106 @@ class InstagramScraperEngine:
         # 2. Playwright deep continuous scroll for full uncapped profile or larger limits
         _, posts = await self._fetch_via_playwright(username, limit=limit, progress_callback=progress_callback)
         return posts
+
+    async def get_logged_in_user_profile(self) -> Optional[Dict[str, Any]]:
+        """Extract authenticated username, user_id, and profile picture from Instagram session cookies."""
+        if not self.session_cookie or self.session_cookie == "dummy_session_cookie":
+            return None
+        
+        cookies_dict = parse_instagram_cookies(self.session_cookie)
+        user_id = extract_user_id_from_cookies(cookies_dict, self.session_cookie)
+        
+        try:
+            from playwright.async_api import async_playwright
+            cookies_to_add = []
+            for k, v in cookies_dict.items():
+                cookies_to_add.append({
+                    'name': k,
+                    'value': str(v).strip('\"').strip('\''),
+                    'domain': '.instagram.com',
+                    'path': '/',
+                    'secure': True
+                })
+            if 'sessionid' not in cookies_dict and self.session_cookie:
+                cookies_to_add.append({
+                    'name': 'sessionid',
+                    'value': self.session_cookie.strip('\"').strip('\''),
+                    'domain': '.instagram.com',
+                    'path': '/',
+                    'secure': True
+                })
+                
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True, args=PLAYWRIGHT_CHROMIUM_ARGS)
+                context = await browser.new_context(
+                    viewport={'width': 1280, 'height': 800},
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+                )
+                await context.add_cookies(cookies_to_add)
+                page = await context.new_page()
+                
+                async def handle_route(route):
+                    req_type = route.request.resource_type
+                    if req_type in ['font', 'stylesheet', 'media']:
+                        await route.abort()
+                    else:
+                        await route.continue_()
+                await page.route('**/*', handle_route)
+                
+                try:
+                    await page.goto('https://www.instagram.com/', wait_until='domcontentloaded', timeout=12000)
+                    await page.wait_for_timeout(1500)
+                except Exception as e:
+                    logger.warning(f"Nav timeout when discovering session profile: {e}")
+                
+                user_data = await page.evaluate(r'''() => {
+                    const navLinks = Array.from(document.querySelectorAll('a[role="link"], a[href]'));
+                    for (const a of navLinks) {
+                        const text = (a.innerText || '').toLowerCase();
+                        const href = a.getAttribute('href') || '';
+                        const img = a.querySelector('img');
+                        const alt = img ? (img.getAttribute('alt') || '').toLowerCase() : '';
+                        if (text.includes('profile') || alt.includes('profile picture') || alt.includes('profile photo')) {
+                            const cleanHref = href.replace(/^\/+|\/+$/g, '');
+                            if (cleanHref && !['explore', 'reels', 'direct', 'stories', 'accounts'].includes(cleanHref)) {
+                                return {
+                                    username: cleanHref,
+                                    profile_pic_url: img ? img.src : null
+                                };
+                            }
+                        }
+                    }
+                    const imgs = Array.from(document.querySelectorAll('img[alt*="profile picture"]'));
+                    for (const img of imgs) {
+                        const alt = img.getAttribute('alt') || '';
+                        const match = alt.match(/^(.+?)'s profile picture/i);
+                        if (match && match[1]) {
+                            return {
+                                username: match[1].trim(),
+                                profile_pic_url: img.src
+                            };
+                        }
+                    }
+                    return null;
+                }''')
+                
+                if user_data and user_data.get('username'):
+                    try:
+                        await page.goto(f"https://www.instagram.com/{user_data['username']}/", wait_until='domcontentloaded', timeout=10000)
+                        await page.wait_for_timeout(500)
+                        og_img = await page.get_attribute('meta[property="og:image"]', 'content')
+                        if og_img and ('fbcdn' in og_img or 'instagram' in og_img) and not og_img.endswith('.mp4'):
+                            user_data['profile_pic_url'] = og_img
+                    except Exception as e:
+                        logger.warning(f"OG img fetch error for logged in user: {e}")
+                
+                await browser.close()
+                if user_data:
+                    user_data['user_id'] = user_id
+                return user_data
+        except Exception as e:
+            logger.error(f"Error extracting logged in user profile from cookies: {e}")
+            return None
 
     async def get_user_stories(self, username: str, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Fetch active 24h Instagram Stories for a user."""
