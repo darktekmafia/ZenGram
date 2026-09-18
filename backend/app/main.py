@@ -97,6 +97,7 @@ ALLOWED_IMAGE_DOMAINS = (
 def _is_safe_image_proxy_url(url_str: str) -> bool:
     import urllib.parse
     import ipaddress
+    import socket
     try:
         parsed = urllib.parse.urlparse(url_str)
         if parsed.scheme not in ("http", "https"):
@@ -105,7 +106,7 @@ def _is_safe_image_proxy_url(url_str: str) -> bool:
         if not hostname:
             return False
 
-        # Block localhost and IP addresses
+        # Block localhost and literal IP addresses
         try:
             ip = ipaddress.ip_address(hostname)
             if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
@@ -116,8 +117,22 @@ def _is_safe_image_proxy_url(url_str: str) -> bool:
         if hostname in ("localhost", "127.0.0.1", "::1"):
             return False
 
-        # Check whitelist against domain endings
-        return any(hostname == d or hostname.endswith("." + d) for d in ALLOWED_IMAGE_DOMAINS)
+        # Check domain allowlist
+        if not any(hostname == d or hostname.endswith("." + d) for d in ALLOWED_IMAGE_DOMAINS):
+            return False
+
+        # Verify resolved IP addresses against private / loopback ranges (anti-DNS rebinding)
+        try:
+            addr_info = socket.getaddrinfo(hostname, None)
+            for item in addr_info:
+                ip_str = item[4][0]
+                ip = ipaddress.ip_address(ip_str)
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                    return False
+        except Exception:
+            pass
+
+        return True
     except Exception:
         return False
 
