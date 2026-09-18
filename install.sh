@@ -138,7 +138,9 @@ detect_and_install_deps() {
     if [ "$PM" = "apt" ]; then
         CHROMIUM_DEPS=("libnss3" "libnspr4" "libatk1.0-0" "libatk-bridge2.0-0" "libcups2" "libdrm2" "libxkbcommon0" "libxcomposite1" "libxdamage1" "libxfixes3" "libxrandr2" "libgbm1" "libpango-1.0-0" "libcairo2")
         for dep in "${CHROMIUM_DEPS[@]}"; do
-            if ! dpkg -s "$dep" &> /dev/null; then PKGS_TO_INSTALL+=("$dep"); fi
+            if ! dpkg -s "$dep" &> /dev/null && ! dpkg -s "${dep}t64" &> /dev/null; then
+                PKGS_TO_INSTALL+=("$dep")
+            fi
         done
     fi
 
@@ -173,11 +175,16 @@ source .venv/bin/activate
 pip install --upgrade pip --quiet
 
 # 3. Install Python Dependencies & Headless Browser
-echo "[3/6] Installing backend Python packages and Playwright Chromium..."
+echo "[3/6] Installing backend Python packages and verifying browser engine..."
 pip install -r backend/requirements.txt --quiet
-echo "[*] Installing Playwright Chromium browser binaries..."
-playwright install chromium 2>/dev/null || true
-echo "[✓] Backend dependencies and browser engine installed."
+if [ -d "$HOME/.cache/ms-playwright/chromium-"* ] || [ -d "/root/.cache/ms-playwright/chromium-"* ] 2>/dev/null; then
+    echo "[✓] Playwright Chromium browser already installed."
+else
+    echo "[*] Installing Playwright Chromium browser binaries..."
+    playwright install chromium 2>/dev/null || true
+    echo "[✓] Browser engine installed."
+fi
+echo "[✓] Backend dependencies and browser engine ready."
 
 # 4. Build Frontend Assets (Vite)
 echo "[4/6] Installing frontend dependencies and compiling production bundle..."
