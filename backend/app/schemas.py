@@ -126,3 +126,60 @@ class RateLimitStatus(BaseModel):
     utilization_percentage: float
     is_critical: bool
     status_message: str
+
+class AppStatsResponse(BaseModel):
+    total_followed_accounts: int
+    total_tracked_accounts: int
+    total_all_profiles: int
+    total_saved_posts: int
+    download_directory: str
+    download_dir_size_bytes: int
+    download_dir_size_formatted: str
+    download_dir_file_count: int
+    disk_total_formatted: str
+    disk_used_formatted: str
+    disk_free_formatted: str
+    disk_used_percentage: float
+
+class SystemHardwareResponse(BaseModel):
+    os_name: str
+    kernel_version: str
+    hostname: str
+    is_container: bool
+    container_type: str
+    uptime: str
+    cpu_model: str
+    cpu_cores_logical: int
+    cpu_cores_physical: int
+    cpu_usage_percent: float
+    load_average: List[float]
+    ram_total_formatted: str
+    ram_used_formatted: str
+    ram_free_formatted: str
+    ram_usage_percent: float
+    swap_total_formatted: str
+    swap_used_formatted: str
+    swap_free_formatted: str
+    swap_usage_percent: float
+    disk_total_formatted: str
+    disk_used_formatted: str
+    disk_free_formatted: str
+    disk_usage_percent: float
+    process_memory_formatted: str
+    python_version: str
+
+class VersionInfoResponse(BaseModel):
+    version: str
+    commit_hash: str
+    commit_date: str
+    commit_message: str
+    branch: str
+    is_git: bool
+    update_available: bool
+    latest_version: str
+    latest_commit: Optional[str] = None
+    behind_by: int = 0
+    distro_name: str
+    hostname: str
+    python_version: str
+    update_status_text: str

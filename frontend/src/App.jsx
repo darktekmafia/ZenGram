@@ -8,8 +8,7 @@ import BatchConfigModal from './components/BatchConfigModal'
 import UpdateModal from './components/UpdateModal'
 import DevToolsGuideModal from './components/DevToolsGuideModal'
 import LoginScreen from './components/LoginScreen'
-import ProfileAvatar from './components/ProfileAvatar'
-import { Download, RefreshCw, Layers, CheckCircle2, Shield, Eye, EyeOff, Users, UserCheck, Key, Settings as SettingsIcon, HardDrive, RotateCcw, Trash2, AlertCircle, ExternalLink, FolderDown, Clock, Loader2, Activity, Terminal, Sparkles, GitBranch, TerminalSquare, ChevronDown, ChevronUp, ChevronsUpDown, Monitor, BookOpen, AlertTriangle, Lock } from 'lucide-react'
+import { Download, RefreshCw, Layers, CheckCircle2, Shield, Eye, EyeOff, Users, UserCheck, Key, Settings as SettingsIcon, HardDrive, RotateCcw, Trash2, AlertCircle, ExternalLink, FolderDown, Clock, Loader2, Activity, Terminal, Sparkles, GitBranch, TerminalSquare, ChevronDown, ChevronUp, ChevronsUpDown, Monitor, BookOpen, AlertTriangle, Lock, BarChart3, Server, Cpu, Copy, Check, Box, Boxes, PieChart, ShieldCheck } from 'lucide-react'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
@@ -54,7 +53,15 @@ export default function App() {
   const [passwordChangeStatus, setPasswordChangeStatus] = useState(null)
   const [authToggleStatus, setAuthToggleStatus] = useState(null)
 
+  const [appStats, setAppStats] = useState(null)
+  const [fetchingStats, setFetchingStats] = useState(false)
+  const [systemHardware, setSystemHardware] = useState(null)
+  const [fetchingHardware, setFetchingHardware] = useState(false)
+  const [copiedPath, setCopiedPath] = useState(false)
+
   const [expandedSections, setExpandedSections] = useState({
+    stats: true,
+    systemInfo: false,
     session: false,
     storage: false,
     maintenance: false,
@@ -72,6 +79,8 @@ export default function App() {
 
   const setAllSections = (expand) => {
     setExpandedSections({
+      stats: expand,
+      systemInfo: expand,
       session: expand,
       storage: expand,
       maintenance: expand,
@@ -248,6 +257,46 @@ export default function App() {
     }
   }
 
+  // Fetch Application & Download Stats
+  const fetchAppStats = async (forceRefresh = false) => {
+    try {
+      setFetchingStats(true)
+      const res = await fetch(`/api/v1/system/stats${forceRefresh ? '?refresh=true' : ''}`)
+      if (res.ok) {
+        const data = await res.json()
+        setAppStats(data)
+      }
+    } catch (err) {
+      console.error('Error fetching application stats:', err)
+    } finally {
+      setFetchingStats(false)
+    }
+  }
+
+  // Fetch System Information & Hardware Telemetry
+  const fetchSystemHardware = async () => {
+    try {
+      setFetchingHardware(true)
+      const res = await fetch('/api/v1/system/hardware')
+      if (res.ok) {
+        const data = await res.json()
+        setSystemHardware(data)
+      }
+    } catch (err) {
+      console.error('Error fetching system hardware info:', err)
+    } finally {
+      setFetchingHardware(false)
+    }
+  }
+
+  const handleCopyDownloadPath = () => {
+    if (appStats?.download_directory) {
+      navigator.clipboard.writeText(appStats.download_directory)
+      setCopiedPath(true)
+      setTimeout(() => setCopiedPath(false), 2000)
+    }
+  }
+
   useEffect(() => {
     fetchAuthStatus()
   }, [])
@@ -262,6 +311,8 @@ export default function App() {
       fetchAppSettings()
       fetchSystemVersion()
       fetchDisplayInfo()
+      fetchAppStats()
+      fetchSystemHardware()
       const interval = setInterval(fetchRateLimit, 30000)
       return () => clearInterval(interval)
     }
@@ -1387,6 +1438,376 @@ export default function App() {
                     <span>{Object.values(expandedSections).every(Boolean) ? 'Collapse All' : 'Expand All'}</span>
                   </button>
                 </div>
+              </div>
+
+              {/* Section: Application & Download Statistics */}
+              <div
+                id="settings-section-stats"
+                className={`settings-accordion-item ${expandedSections.stats ? 'is-expanded' : ''} ${highlightedSection === 'stats' ? 'highlight-section' : ''}`}
+              >
+                <div
+                  className="settings-accordion-header"
+                  onClick={() => toggleSection('stats')}
+                >
+                  <div className="settings-accordion-header-left">
+                    <div className="settings-accordion-icon" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399' }}>
+                      <BarChart3 size={19} />
+                    </div>
+                    <div className="settings-accordion-title-group">
+                      <h3>Application & Download Statistics</h3>
+                      <p>Overview of followed accounts, tracked profiles, downloaded media volume, and storage metrics</p>
+                    </div>
+                  </div>
+
+                  <div className="settings-accordion-header-right">
+                    <span className="settings-badge success">
+                      {appStats ? `${appStats.download_dir_size_formatted} Saved • ${appStats.total_saved_posts.toLocaleString()} Posts` : 'Loading Stats...'}
+                    </span>
+                    <div className="settings-accordion-chevron">
+                      <ChevronDown size={18} />
+                    </div>
+                  </div>
+                </div>
+
+                {expandedSections.stats && (
+                  <div className="settings-accordion-body">
+                    {/* 4-Card KPI Stat Grid */}
+                    <div className="stats-grid">
+                      <div className="stat-card">
+                        <div className="stat-card-header">
+                          <span className="stat-card-label">Followed Accounts</span>
+                          <div className="stat-card-icon" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa' }}>
+                            <Users size={16} />
+                          </div>
+                        </div>
+                        <div>
+                          <div className="stat-card-value">
+                            {appStats ? appStats.total_followed_accounts.toLocaleString() : '...'}
+                          </div>
+                          <div className="stat-card-sub">Profiles followed on Instagram</div>
+                        </div>
+                        <button
+                          type="button"
+                          className="stat-card-action"
+                          onClick={() => setActiveTab('followed')}
+                        >
+                          View Followed →
+                        </button>
+                      </div>
+
+                      <div className="stat-card">
+                        <div className="stat-card-header">
+                          <span className="stat-card-label">Tracked Accounts</span>
+                          <div className="stat-card-icon" style={{ background: 'rgba(168, 85, 247, 0.15)', color: '#c084fc' }}>
+                            <Eye size={16} />
+                          </div>
+                        </div>
+                        <div>
+                          <div className="stat-card-value">
+                            {appStats ? appStats.total_tracked_accounts.toLocaleString() : '...'}
+                          </div>
+                          <div className="stat-card-sub">Unfollowed custom watched</div>
+                        </div>
+                        <button
+                          type="button"
+                          className="stat-card-action"
+                          onClick={() => setActiveTab('watched')}
+                        >
+                          View Tracked →
+                        </button>
+                      </div>
+
+                      <div className="stat-card">
+                        <div className="stat-card-header">
+                          <span className="stat-card-label">Saved Media Posts</span>
+                          <div className="stat-card-icon" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399' }}>
+                            <HardDrive size={16} />
+                          </div>
+                        </div>
+                        <div>
+                          <div className="stat-card-value">
+                            {appStats ? appStats.total_saved_posts.toLocaleString() : '...'}
+                          </div>
+                          <div className="stat-card-sub">Downloaded posts & reels on disk</div>
+                        </div>
+                        <button
+                          type="button"
+                          className="stat-card-action"
+                          onClick={() => setActiveTab('downloads')}
+                        >
+                          View Content →
+                        </button>
+                      </div>
+
+                      <div className="stat-card">
+                        <div className="stat-card-header">
+                          <span className="stat-card-label">Download Storage</span>
+                          <div className="stat-card-icon" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24' }}>
+                            <FolderDown size={16} />
+                          </div>
+                        </div>
+                        <div>
+                          <div className="stat-card-value">
+                            {appStats ? appStats.download_dir_size_formatted : '...'}
+                          </div>
+                          <div className="stat-card-sub">
+                            {appStats ? `${appStats.download_dir_file_count.toLocaleString()} media files on disk` : 'Calculating...'}
+                          </div>
+                        </div>
+                        <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                          Total Directory Size
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Download Directory Path Bar */}
+                    <div className="stat-download-path-box">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                        <div style={{ padding: '6px', borderRadius: '6px', background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', flexShrink: 0 }}>
+                          <FolderDown size={18} />
+                        </div>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>
+                            Configured Download Directory
+                          </div>
+                          <div style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '2px' }}>
+                            {appStats?.download_directory || 'Loading...'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ fontSize: '0.78rem', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                          onClick={handleCopyDownloadPath}
+                        >
+                          {copiedPath ? <Check size={14} style={{ color: '#10b981' }} /> : <Copy size={14} />}
+                          <span>{copiedPath ? 'Copied!' : 'Copy Path'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Drive Storage Volume Gauge */}
+                    {appStats && (
+                      <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: 'var(--radius-sm)', padding: '12px 16px', marginBottom: '16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: '4px' }}>
+                          <span style={{ fontWeight: '600', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <HardDrive size={14} style={{ color: '#60a5fa' }} /> Download Drive Capacity ({appStats.download_directory})
+                          </span>
+                          <span style={{ fontWeight: '700', color: appStats.disk_used_percentage > 85 ? '#ef4444' : appStats.disk_used_percentage > 70 ? '#f59e0b' : '#34d399' }}>
+                            {appStats.disk_used_percentage}% Used
+                          </span>
+                        </div>
+                        <div className="resource-bar-track">
+                          <div
+                            className={`resource-bar-fill ${appStats.disk_used_percentage > 85 ? 'critical' : appStats.disk_used_percentage > 70 ? 'warning' : 'safe'}`}
+                            style={{ width: `${Math.min(appStats.disk_used_percentage, 100)}%` }}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                          <span>Used: <strong>{appStats.disk_used_formatted}</strong> of {appStats.disk_total_formatted}</span>
+                          <span>Available Free: <strong style={{ color: '#34d399' }}>{appStats.disk_free_formatted}</strong></span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Refresh Stats Action */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ fontSize: '0.82rem', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                        onClick={() => fetchAppStats(true)}
+                        disabled={fetchingStats}
+                      >
+                        <RefreshCw size={14} className={fetchingStats ? 'animate-spin' : ''} />
+                        <span>{fetchingStats ? 'Scanning Storage...' : 'Refresh Stats & Re-scan Disk'}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Section: System Information & Hardware Telemetry */}
+              <div
+                id="settings-section-system-info"
+                className={`settings-accordion-item ${expandedSections.systemInfo ? 'is-expanded' : ''} ${highlightedSection === 'systemInfo' ? 'highlight-section' : ''}`}
+              >
+                <div
+                  className="settings-accordion-header"
+                  onClick={() => toggleSection('systemInfo')}
+                >
+                  <div className="settings-accordion-header-left">
+                    <div className="settings-accordion-icon" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa' }}>
+                      <Server size={19} />
+                    </div>
+                    <div className="settings-accordion-title-group">
+                      <h3>System Information & Hardware Resources</h3>
+                      <p>Real-time OS, CPU, RAM, swap, and disk telemetry optimized for local & LXC environments</p>
+                    </div>
+                  </div>
+
+                  <div className="settings-accordion-header-right">
+                    <span className="settings-badge info" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#93c5fd', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
+                      {systemHardware?.is_container ? <><Box size={12} /> {systemHardware.container_type}</> : <><Server size={12} /> {systemHardware?.hostname || 'Host'}</>}
+                    </span>
+                    <div className="settings-accordion-chevron">
+                      <ChevronDown size={18} />
+                    </div>
+                  </div>
+                </div>
+
+                {expandedSections.systemInfo && (
+                  <div className="settings-accordion-body">
+                    {/* Live Resource Meters (CPU, RAM, Swap, Disk) */}
+                    <div className="resource-meters-grid">
+                      {/* CPU Meter */}
+                      <div className="resource-meter-card">
+                        <div className="resource-meter-header">
+                          <div className="resource-meter-title">
+                            <Cpu size={15} style={{ color: '#60a5fa' }} />
+                            <span>CPU Usage</span>
+                          </div>
+                          <div className="resource-meter-pct" style={{ color: (systemHardware?.cpu_usage_percent || 0) > 85 ? '#ef4444' : (systemHardware?.cpu_usage_percent || 0) > 70 ? '#f59e0b' : '#34d399' }}>
+                            {systemHardware?.cpu_usage_percent ?? 0}%
+                          </div>
+                        </div>
+                        <div className="resource-bar-track">
+                          <div
+                            className={`resource-bar-fill ${(systemHardware?.cpu_usage_percent || 0) > 85 ? 'critical' : (systemHardware?.cpu_usage_percent || 0) > 70 ? 'warning' : 'safe'}`}
+                            style={{ width: `${Math.min(systemHardware?.cpu_usage_percent || 0, 100)}%` }}
+                          />
+                        </div>
+                        <div className="resource-meter-sub">
+                          {systemHardware?.cpu_cores_logical || 1} Cores ({systemHardware?.cpu_cores_physical || 1} Phys) • Load: {systemHardware?.load_average?.join(', ') || 'N/A'}
+                        </div>
+                      </div>
+
+                      {/* RAM Meter */}
+                      <div className="resource-meter-card">
+                        <div className="resource-meter-header">
+                          <div className="resource-meter-title">
+                            <Activity size={15} style={{ color: '#34d399' }} />
+                            <span>RAM Memory</span>
+                          </div>
+                          <div className="resource-meter-pct" style={{ color: (systemHardware?.ram_usage_percent || 0) > 85 ? '#ef4444' : (systemHardware?.ram_usage_percent || 0) > 70 ? '#f59e0b' : '#34d399' }}>
+                            {systemHardware?.ram_usage_percent ?? 0}%
+                          </div>
+                        </div>
+                        <div className="resource-bar-track">
+                          <div
+                            className={`resource-bar-fill ${(systemHardware?.ram_usage_percent || 0) > 85 ? 'critical' : (systemHardware?.ram_usage_percent || 0) > 70 ? 'warning' : 'safe'}`}
+                            style={{ width: `${Math.min(systemHardware?.ram_usage_percent || 0, 100)}%` }}
+                          />
+                        </div>
+                        <div className="resource-meter-sub">
+                          {systemHardware?.ram_used_formatted || '0 B'} used / {systemHardware?.ram_total_formatted || '0 B'} ({systemHardware?.ram_free_formatted || '0 B'} free)
+                        </div>
+                      </div>
+
+                      {/* Swap Meter */}
+                      <div className="resource-meter-card">
+                        <div className="resource-meter-header">
+                          <div className="resource-meter-title">
+                            <Layers size={15} style={{ color: '#c084fc' }} />
+                            <span>Swap Space</span>
+                          </div>
+                          <div className="resource-meter-pct" style={{ color: (systemHardware?.swap_usage_percent || 0) > 85 ? '#ef4444' : (systemHardware?.swap_usage_percent || 0) > 70 ? '#f59e0b' : '#c084fc' }}>
+                            {systemHardware?.swap_usage_percent ?? 0}%
+                          </div>
+                        </div>
+                        <div className="resource-bar-track">
+                          <div
+                            className={`resource-bar-fill ${(systemHardware?.swap_usage_percent || 0) > 85 ? 'critical' : (systemHardware?.swap_usage_percent || 0) > 70 ? 'warning' : 'safe'}`}
+                            style={{ width: `${Math.min(systemHardware?.swap_usage_percent || 0, 100)}%` }}
+                          />
+                        </div>
+                        <div className="resource-meter-sub">
+                          {systemHardware?.swap_used_formatted || '0 B'} used / {systemHardware?.swap_total_formatted || '0 B'}
+                        </div>
+                      </div>
+
+                      {/* Root Disk Meter */}
+                      <div className="resource-meter-card">
+                        <div className="resource-meter-header">
+                          <div className="resource-meter-title">
+                            <HardDrive size={15} style={{ color: '#fbbf24' }} />
+                            <span>Root Storage (/)</span>
+                          </div>
+                          <div className="resource-meter-pct" style={{ color: (systemHardware?.disk_usage_percent || 0) > 85 ? '#ef4444' : (systemHardware?.disk_usage_percent || 0) > 70 ? '#f59e0b' : '#34d399' }}>
+                            {systemHardware?.disk_usage_percent ?? 0}%
+                          </div>
+                        </div>
+                        <div className="resource-bar-track">
+                          <div
+                            className={`resource-bar-fill ${(systemHardware?.disk_usage_percent || 0) > 85 ? 'critical' : (systemHardware?.disk_usage_percent || 0) > 70 ? 'warning' : 'safe'}`}
+                            style={{ width: `${Math.min(systemHardware?.disk_usage_percent || 0, 100)}%` }}
+                          />
+                        </div>
+                        <div className="resource-meter-sub">
+                          {systemHardware?.disk_used_formatted || '0 B'} used / {systemHardware?.disk_total_formatted || '0 B'} ({systemHardware?.disk_free_formatted || '0 B'} free)
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Detailed Telemetry Table */}
+                    <table className="info-table">
+                      <tbody>
+                        <tr>
+                          <td className="label">Host & Operating System</td>
+                          <td className="value">{systemHardware?.os_name || 'Detecting OS...'}</td>
+                        </tr>
+                        <tr>
+                          <td className="label">Linux Kernel & Arch</td>
+                          <td className="value">{systemHardware?.kernel_version || 'N/A'}</td>
+                        </tr>
+                        <tr>
+                          <td className="label">Environment / Virtualization</td>
+                          <td className="value" style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end' }}>
+                            <span className={`settings-badge ${systemHardware?.is_container ? 'info' : 'neutral'}`} style={{ fontSize: '0.76rem', padding: '2px 8px' }}>
+                              {systemHardware?.container_type || 'Bare Metal / VM Host'}
+                            </span>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>({systemHardware?.hostname || 'localhost'})</span>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="label">CPU Processor Model</td>
+                          <td className="value" style={{ fontFamily: 'monospace', fontSize: '0.84rem' }}>
+                            {systemHardware?.cpu_model || 'Generic CPU'}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="label">System Uptime</td>
+                          <td className="value">
+                            <strong style={{ color: '#34d399' }}>{systemHardware?.uptime || 'N/A'}</strong>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="label">Backend Runtime & Memory</td>
+                          <td className="value">
+                            Python {systemHardware?.python_version || '3.x'} • Service Process RSS: <strong style={{ color: '#60a5fa' }}>{systemHardware?.process_memory_formatted || 'N/A'}</strong>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+
+                    {/* Action Buttons */}
+                    <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ fontSize: '0.82rem', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                        onClick={fetchSystemHardware}
+                        disabled={fetchingHardware}
+                      >
+                        <RefreshCw size={14} className={fetchingHardware ? 'animate-spin' : ''} />
+                        <span>{fetchingHardware ? 'Querying System...' : 'Refresh System Metrics'}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Section 1: User Session & Credentials */}
