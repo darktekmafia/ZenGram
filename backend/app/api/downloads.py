@@ -435,7 +435,6 @@ async def process_user_batch_archive_job(
 import re
 import io
 import zipfile
-from datetime import datetime
 from fastapi.responses import FileResponse, Response
 
 def resolve_or_relocate_path(item: MediaItem, base_dir: Optional[Path] = None) -> Optional[str]:
@@ -1064,7 +1063,7 @@ async def verify_downloaded_files_on_disk(db: AsyncSession = Depends(get_db)):
                 item.local_file_path = str(found_file)
                 if not item.saved_at:
                     try:
-                        item.saved_at = datetime.fromtimestamp(found_file.stat().st_mtime)
+                        item.saved_at = datetime.datetime.fromtimestamp(found_file.stat().st_mtime)
                     except Exception:
                         pass
                 verified_count += 1
