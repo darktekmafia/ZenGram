@@ -10,6 +10,7 @@ from backend.app.database import get_db
 from backend.app.models import MediaItem, DownloadJob
 from backend.app.schemas import MediaItemResponse, BulkDownloadRequest, DownloadJobResponse, PaginatedMediaResponse
 from backend.app.services.downloader import downloader
+from backend.app.config import settings
 
 logger = logging.getLogger("zengram.downloads")
 
