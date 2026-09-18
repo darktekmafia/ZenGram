@@ -26,6 +26,13 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
         db.add(app_settings)
         await db.commit()
         await db.refresh(app_settings)
+    elif app_settings.download_directory and (app_settings.download_directory.endswith("/InstaSave") or app_settings.download_directory.endswith("\\InstaSave")):
+        # Auto-migrate legacy default directory name to ZenGram
+        suffix_len = 10
+        sep = "/" if "/" in app_settings.download_directory else "\\"
+        app_settings.download_directory = app_settings.download_directory[:-suffix_len] + f"{sep}ZenGram"
+        await db.commit()
+        await db.refresh(app_settings)
     return app_settings
 
 @router.post("", response_model=AppSettingsSchema)
