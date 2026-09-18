@@ -296,12 +296,12 @@ async def check_for_updates():
     if git_info["is_git"]:
         try:
             subprocess.run(
-                ["git", "fetch", "--dry-run", "origin"],
+                ["git", "fetch", "--quiet", "origin"],
                 cwd=str(base_dir),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                timeout=5
+                timeout=8
             )
             status_res = subprocess.run(
                 ["git", "rev-list", "--count", "HEAD..origin/main"],
