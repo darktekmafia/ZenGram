@@ -1,7 +1,8 @@
 import os
+from typing import Optional
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response, Query, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from backend.app.config import settings
@@ -78,21 +79,91 @@ import httpx
 from fastapi import Response, Query, HTTPException
 
 @app.get("/api/v1/proxy/image")
-async def proxy_image(url: str = Query(...)):
+async def proxy_image(request: Request, url: Optional[str] = Query(None), b64: Optional[str] = Query(None)):
+    import base64
     import html
-    clean_url = html.unescape(url).replace("&amp;", "&").strip()
+    import hashlib
+
+    target_url = None
+
+    # 1. Base64 encoded URL (safe against Nginx reverse proxy parameter decoding)
+    if b64:
+        try:
+            padded = b64 + "=" * (-len(b64) % 4)
+            target_url = base64.urlsafe_b64decode(padded.encode("utf-8")).decode("utf-8")
+        except Exception:
+            try:
+                target_url = base64.b64decode(b64).decode("utf-8")
+            except Exception:
+                pass
+
+    # 2. Raw query string reconstruction (if reverse proxy stripped encoding)
+    if not target_url:
+        if url and not url.startswith("http%3A") and not url.startswith("https%3A"):
+            target_url = url
+        else:
+            raw_query = request.url.query
+            if raw_query.startswith("url="):
+                target_url = urllib.parse.unquote(raw_query[4:])
+            elif "&url=" in raw_query:
+                target_url = urllib.parse.unquote(raw_query.split("&url=", 1)[1])
+            elif url:
+                target_url = urllib.parse.unquote(url)
+
+    if not target_url:
+        raise HTTPException(status_code=400, detail="Missing image URL parameter")
+
+    # Clean and unquote URL if needed
+    if "%3A" in target_url or "%2F" in target_url:
+        target_url = urllib.parse.unquote(target_url)
+
+    target_url = html.unescape(target_url).replace("&amp;", "&").strip().strip('"').strip("'")
+
+    # Local disk cache lookup (keyed by URL without query parameters)
+    cache_key = hashlib.sha256(target_url.split('?')[0].encode('utf-8')).hexdigest()
+    cache_dir = settings.BASE_DIR / "storage" / "cache" / "images"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / f"{cache_key}.jpg"
+
+    if cache_file.exists() and cache_file.stat().st_size > 500:
+        try:
+            with open(cache_file, "rb") as f:
+                content = f.read()
+            return Response(
+                content=content,
+                media_type="image/jpeg",
+                headers={
+                    "Cache-Control": "public, max-age=604800, immutable",
+                    "Cross-Origin-Resource-Policy": "cross-origin",
+                    "Access-Control-Allow-Origin": "*",
+                }
+            )
+        except Exception:
+            pass
+
     async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
         try:
-            res = await client.get(clean_url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-                "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
-            })
+            res = await client.get(
+                target_url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+                    "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                    "Referer": "https://www.instagram.com/",
+                }
+            )
             if res.status_code == 200:
+                # Save to disk cache for permanent local serving
+                try:
+                    with open(cache_file, "wb") as f:
+                        f.write(res.content)
+                except Exception:
+                    pass
+
                 return Response(
                     content=res.content,
                     media_type=res.headers.get("content-type", "image/jpeg"),
                     headers={
-                        "Cache-Control": "public, max-age=86400, immutable",
+                        "Cache-Control": "public, max-age=604800, immutable",
                         "Cross-Origin-Resource-Policy": "cross-origin",
                         "Access-Control-Allow-Origin": "*",
                     }

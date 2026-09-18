@@ -1,5 +1,16 @@
 import React, { useState, useEffect } from 'react'
 
+function toUrlSafeB64(str) {
+  try {
+    return btoa(unescape(encodeURIComponent(str)))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '')
+  } catch (e) {
+    return encodeURIComponent(str)
+  }
+}
+
 export default function ProfileAvatar({ username, profilePicUrl, className = "profile-avatar-large", style = {} }) {
   const cleanUsername = (username || 'user').trim().replace(/^@/, '')
   const fallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(cleanUsername)}&background=232936&color=fff&bold=true`
@@ -8,8 +19,8 @@ export default function ProfileAvatar({ username, profilePicUrl, className = "pr
     if (!url) return fallbackAvatar
     const clean = url.replace(/&amp;/g, '&')
     if (clean.startsWith('http://') || clean.startsWith('https://')) {
-      // Direct proxy endpoint to bypass Instagram CORS / hotlink restrictions reliably
-      return `/api/v1/proxy/image?url=${encodeURIComponent(clean)}`
+      const b64 = toUrlSafeB64(clean)
+      return `/api/v1/proxy/image?b64=${b64}&url=${encodeURIComponent(clean)}`
     }
     return clean
   }
@@ -30,7 +41,8 @@ export default function ProfileAvatar({ username, profilePicUrl, className = "pr
       if (src.includes('/api/v1/proxy/image')) {
         setSrc(clean)
       } else {
-        setSrc(`/api/v1/proxy/image?url=${encodeURIComponent(clean)}`)
+        const b64 = toUrlSafeB64(clean)
+        setSrc(`/api/v1/proxy/image?b64=${b64}&url=${encodeURIComponent(clean)}`)
       }
     } else {
       setSrc(fallbackAvatar)
