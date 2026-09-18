@@ -453,6 +453,7 @@ class InstagramScraperEngine:
         rate_tracker.record_request()
         await self._async_delay()
 
+        api_posts = []
         # 1. Try web_profile_info API first
         url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
         async with httpx.AsyncClient(headers=self.headers, follow_redirects=True, timeout=10.0) as client:
@@ -476,9 +477,9 @@ class InstagramScraperEngine:
                                 seen_edge_ids.add(node_id)
                                 all_edges.append(edge)
 
-                    if all_edges and (limit > 0 and len(all_edges) >= limit):
-                        posts = []
-                        for edge in all_edges[:limit]:
+                    if all_edges:
+                        max_slice = limit if limit > 0 else len(all_edges)
+                        for edge in all_edges[:max_slice]:
                             node = edge.get("node", {})
                             media_type = "IMAGE"
                             if node.get("is_video"):
@@ -495,7 +496,7 @@ class InstagramScraperEngine:
                             ts = node.get("taken_at_timestamp")
                             taken_dt = datetime.datetime.fromtimestamp(ts) if ts else extract_timestamp_from_shortcode(shortcode)
 
-                            posts.append({
+                            api_posts.append({
                                 "post_id": str(node.get("id") or f"ig_{shortcode}"),
                                 "shortcode": shortcode,
                                 "username": username,
@@ -508,13 +509,25 @@ class InstagramScraperEngine:
                                 "comments_count": node.get("edge_media_to_comment", {}).get("count", 0),
                                 "taken_at": taken_dt or datetime.datetime.utcnow(),
                             })
-                        return posts
+                        if limit > 0 and len(api_posts) >= limit:
+                            return api_posts
             except Exception as e:
                 logger.error(f"Error fetching posts for {username}: {e}")
 
         # 2. Playwright deep continuous scroll for full uncapped profile or larger limits
-        _, posts = await self._fetch_via_playwright(username, limit=limit, progress_callback=progress_callback)
-        return posts
+        try:
+            _, playwright_posts = await self._fetch_via_playwright(username, limit=limit, progress_callback=progress_callback)
+            if playwright_posts and len(playwright_posts) > 0:
+                # Merge with api_posts
+                existing_codes = {p["shortcode"] for p in playwright_posts}
+                for p in api_posts:
+                    if p["shortcode"] not in existing_codes:
+                        playwright_posts.append(p)
+                return playwright_posts
+        except Exception as e:
+            logger.warning(f"Playwright fallback scroll error for {username}: {e}")
+
+        return api_posts
 
     async def get_logged_in_user_profile(self) -> Optional[Dict[str, Any]]:
         """Extract authenticated username, user_id, and profile picture from Instagram session cookies."""
