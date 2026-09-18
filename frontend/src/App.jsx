@@ -547,6 +547,7 @@ export default function App() {
       if (res.ok) {
         const data = await res.json()
         await fetchProfiles()
+        await fetchUserSession()
         alert(`Successfully synced ${data.length} followed accounts from Instagram!`)
       } else {
         const err = await res.json().catch(() => ({}))
@@ -1243,20 +1244,12 @@ export default function App() {
               <div className="modal-card" style={{ marginBottom: '24px', background: 'var(--card-bg)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div style={{
-                      width: '44px',
-                      height: '44px',
-                      borderRadius: '50%',
-                      background: 'linear-gradient(135deg, var(--accent-purple), var(--accent-pink))',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: '#fff',
-                      fontWeight: '700',
-                      fontSize: '1.2rem'
-                    }}>
-                      {userSession?.username ? userSession.username[0].toUpperCase() : 'U'}
-                    </div>
+                    <ProfileAvatar
+                      username={userSession?.username || 'admin'}
+                      profilePicUrl={userSession?.profile_pic_url}
+                      className="user-avatar"
+                      style={{ width: '44px', height: '44px', borderRadius: '12px', objectFit: 'cover', flexShrink: 0 }}
+                    />
                     <div>
                       <div style={{ fontWeight: '700', fontSize: '1.1rem' }}>
                         User Details: @{userSession?.username || 'admin'}

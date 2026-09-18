@@ -177,20 +177,31 @@ class InstagramScraperEngine:
                 )
                 if self.session_cookie and self.session_cookie != "dummy_session_cookie":
                     cookies_dict = parse_instagram_cookies(self.session_cookie)
-                    for k, v in cookies_dict.items():
-                        await context.add_cookies([{
-                            'name': k,
-                            'value': v,
+                    user_id = extract_user_id_from_cookies(cookies_dict, self.session_cookie)
+                    playwright_cookies = []
+                    if user_id:
+                        playwright_cookies.append({
+                            'name': 'ds_user_id',
+                            'value': str(user_id),
                             'domain': '.instagram.com',
                             'path': '/'
-                        }])
+                        })
                     if 'sessionid' not in cookies_dict:
-                        await context.add_cookies([{
+                        playwright_cookies.append({
                             'name': 'sessionid',
-                            'value': self.session_cookie,
+                            'value': self.session_cookie.strip(),
                             'domain': '.instagram.com',
                             'path': '/'
-                        }])
+                        })
+                    for k, v in cookies_dict.items():
+                        if k not in ('ds_user_id', 'sessionid'):
+                            playwright_cookies.append({
+                                'name': k,
+                                'value': str(v),
+                                'domain': '.instagram.com',
+                                'path': '/'
+                            })
+                    await context.add_cookies(playwright_cookies)
                 
                 page = await context.new_page()
 

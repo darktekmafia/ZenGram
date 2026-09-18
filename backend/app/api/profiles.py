@@ -83,6 +83,24 @@ async def sync_followed_accounts(db: AsyncSession = Depends(get_db)):
         except Exception:
             pass
 
+    # Ensure user session has profile avatar saved
+    if session and (not session.profile_pic_url or session.username in ("admin", "", None)):
+        try:
+            detected = await scraper.get_logged_in_user_profile()
+            if detected:
+                if detected.get("username") and session.username in ("admin", "", None):
+                    session.username = detected["username"]
+                if detected.get("profile_pic_url"):
+                    session.profile_pic_url = detected["profile_pic_url"]
+            elif username and username != "admin":
+                prof_info = await scraper.get_user_profile(username)
+                if prof_info and prof_info.get("profile_pic_url"):
+                    session.profile_pic_url = prof_info["profile_pic_url"]
+            await db.commit()
+            await db.refresh(session)
+        except Exception as e:
+            pass
+
     return imported_profiles
 
 async def get_active_scraper(db: AsyncSession) -> InstagramScraperEngine:
