@@ -241,19 +241,37 @@ async def get_current_session(db: AsyncSession = Depends(get_db)):
 @router.post("/session", response_model=UserSessionResponse)
 async def create_session(data: UserSessionCreate, db: AsyncSession = Depends(get_db)):
     clean_cookie = data.session_cookie.strip().strip('"').strip("'")
-    result = await db.execute(select(UserSession).where(UserSession.username == data.username))
+    clean_username = data.username.strip().lstrip("@").strip() or "admin"
+
+    # Fetch profile avatar if username is not generic 'admin'
+    profile_pic = None
+    if clean_username and clean_username.lower() != "admin":
+        try:
+            from backend.app.services.scraper import InstagramScraperEngine
+            scraper = InstagramScraperEngine(session_cookie=clean_cookie)
+            prof_info = await scraper.get_user_profile(clean_username)
+            if prof_info and prof_info.get("profile_pic_url"):
+                profile_pic = prof_info["profile_pic_url"]
+        except Exception as e:
+            logger.warning(f"Error fetching profile avatar for {clean_username}: {e}")
+
+    result = await db.execute(select(UserSession).order_by(UserSession.id.asc()))
     existing = result.scalars().first()
     if existing:
+        existing.username = clean_username
         existing.session_cookie = clean_cookie
         existing.is_active = True
+        if profile_pic:
+            existing.profile_pic_url = profile_pic
         existing.last_validated_at = datetime.datetime.utcnow()
         await db.commit()
         await db.refresh(existing)
         return existing
 
     new_session = UserSession(
-        username=data.username,
+        username=clean_username,
         session_cookie=clean_cookie,
+        profile_pic_url=profile_pic,
         is_active=True,
         last_validated_at=datetime.datetime.utcnow()
     )

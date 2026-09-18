@@ -25,6 +25,7 @@ export default function App() {
   const [syncingFollowed, setSyncingFollowed] = useState(false)
   const [selectedUserFilter, setSelectedUserFilter] = useState(null)
   const [sessionInput, setSessionInput] = useState('')
+  const [sessionUsernameInput, setSessionUsernameInput] = useState('')
   const [showSessionKey, setShowSessionKey] = useState(false)
   const [sessionSaveStatus, setSessionSaveStatus] = useState(null)
   const [sessionTesting, setSessionTesting] = useState(false)
@@ -229,6 +230,9 @@ export default function App() {
         const data = await res.json()
         setUserSession(data)
         setSessionInput(data.session_cookie || '')
+        if (data.username && data.username !== 'admin') {
+          setSessionUsernameInput(data.username)
+        }
       }
     } catch (err) {
       console.error('Error fetching user session:', err)
@@ -648,12 +652,13 @@ export default function App() {
     if (e) e.preventDefault()
     setSessionSaveStatus('saving')
     setSessionTestResult(null)
+    const targetUsername = sessionUsernameInput.trim().replace(/^@/, '') || userSession?.username || 'admin'
     try {
       const res = await fetch('/api/v1/auth/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: userSession?.username || 'admin',
+          username: targetUsername,
           session_cookie: sessionInput
         })
       })
@@ -667,7 +672,7 @@ export default function App() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              username: userSession?.username || 'admin',
+              username: targetUsername,
               session_cookie: sessionInput
             })
           })
@@ -2193,6 +2198,25 @@ export default function App() {
                     </div>
 
                     <form onSubmit={handleSaveSession}>
+                      <div className="settings-form-group">
+                        <label className="settings-label">
+                          Instagram Username
+                        </label>
+                        <div className="settings-input-wrapper">
+                          <input
+                            className="input-field"
+                            type="text"
+                            placeholder="e.g. dad_d_y_o"
+                            value={sessionUsernameInput}
+                            onChange={(e) => setSessionUsernameInput(e.target.value)}
+                            style={{ margin: 0 }}
+                          />
+                        </div>
+                        <p className="settings-description">
+                          Your Instagram account handle used for profile identification and avatar display in the sidebar.
+                        </p>
+                      </div>
+
                       <div className="settings-form-group">
                         <label className="settings-label">
                           Instagram Session Cookie (<code>sessionid</code>)
