@@ -230,11 +230,30 @@ async def get_current_session(db: AsyncSession = Depends(get_db)):
         # If username is generic admin or profile_pic_url is missing, auto-discover
         has_real_cookie = session.session_cookie and session.session_cookie != "dummy_session_cookie"
         if has_real_cookie and (not session.profile_pic_url or session.username == "admin"):
+            # 1. Check local watched_profiles first for instant response
+            if session.username and session.username != "admin":
+                wp_res = await db.execute(select(WatchedProfile).where(WatchedProfile.username == session.username))
+                wp = wp_res.scalars().first()
+                if wp and wp.profile_pic_url:
+                    session.profile_pic_url = wp.profile_pic_url
+                    await db.commit()
+                    await db.refresh(session)
+                    return session
+
             try:
                 from backend.app.services.scraper import InstagramScraperEngine
                 scraper = InstagramScraperEngine(session_cookie=session.session_cookie)
                 
-                # Check logged in user profile first
+                # If username is known, get direct user profile
+                if session.username and session.username != "admin":
+                    prof_info = await scraper.get_user_profile(session.username)
+                    if prof_info and prof_info.get("profile_pic_url"):
+                        session.profile_pic_url = prof_info["profile_pic_url"]
+                        await db.commit()
+                        await db.refresh(session)
+                        return session
+
+                # Otherwise probe logged in user session
                 detected = await scraper.get_logged_in_user_profile()
                 if detected:
                     if detected.get("username") and session.username in ("admin", "", None):
@@ -243,21 +262,39 @@ async def get_current_session(db: AsyncSession = Depends(get_db)):
                         session.profile_pic_url = detected["profile_pic_url"]
                     await db.commit()
                     await db.refresh(session)
-                elif session.username and session.username != "admin":
-                    wp_res = await db.execute(select(WatchedProfile).where(WatchedProfile.username == session.username))
-                    wp = wp_res.scalars().first()
-                    if wp and wp.profile_pic_url:
-                        session.profile_pic_url = wp.profile_pic_url
-                        await db.commit()
-                        await db.refresh(session)
-                    else:
-                        prof_info = await scraper.get_user_profile(session.username)
-                        if prof_info and prof_info.get("profile_pic_url"):
-                            session.profile_pic_url = prof_info["profile_pic_url"]
-                            await db.commit()
-                            await db.refresh(session)
             except Exception as e:
                 logger.warning(f"Error auto-discovering profile avatar on session retrieval: {e}")
+    return session
+
+
+@router.post("/session/refresh-avatar", response_model=UserSessionResponse)
+async def refresh_session_avatar(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(UserSession).where(UserSession.is_active == True))
+    session = result.scalars().first()
+    if not session or not session.session_cookie or session.session_cookie == "dummy_session_cookie":
+        raise HTTPException(status_code=400, detail="No active Instagram session configured.")
+    
+    from backend.app.services.scraper import InstagramScraperEngine
+    scraper = InstagramScraperEngine(session_cookie=session.session_cookie)
+    
+    if session.username and session.username != "admin":
+        prof = await scraper.get_user_profile(session.username)
+        if prof and prof.get("profile_pic_url"):
+            session.profile_pic_url = prof["profile_pic_url"]
+            await db.commit()
+            await db.refresh(session)
+            return session
+            
+    detected = await scraper.get_logged_in_user_profile()
+    if detected:
+        if detected.get("username") and session.username in ("admin", "", None):
+            session.username = detected["username"]
+        if detected.get("profile_pic_url"):
+            session.profile_pic_url = detected["profile_pic_url"]
+        await db.commit()
+        await db.refresh(session)
+        return session
+        
     return session
 
 
