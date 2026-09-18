@@ -78,7 +78,7 @@ def _get_encryption_cipher() -> Fernet:
 
 
 def encrypt_secret(plaintext: Optional[str]) -> str:
-    """Encrypt sensitive token string for safe storage at rest (AES-256 Fernet)."""
+    """Encrypt sensitive token string for safe storage at rest (AES-256 Fernet). Fails closed."""
     if not plaintext or plaintext == "dummy_session_cookie":
         return plaintext or "dummy_session_cookie"
     if plaintext.startswith("enc:"):
@@ -88,8 +88,8 @@ def encrypt_secret(plaintext: Optional[str]) -> str:
         encrypted = cipher.encrypt(plaintext.encode("utf-8")).decode("utf-8")
         return f"enc:{encrypted}"
     except Exception as e:
-        logger.error(f"Error encrypting secret at rest: {e}")
-        return plaintext
+        logger.critical(f"FATAL: Error encrypting secret at rest: {e}")
+        raise RuntimeError(f"Encryption failed. Refusing to store unencrypted secret: {e}") from e
 
 
 def decrypt_secret(ciphertext: Optional[str]) -> str:

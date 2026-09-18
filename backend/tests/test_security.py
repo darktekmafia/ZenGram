@@ -100,7 +100,7 @@ async def test_security_hardening():
             assert not _is_safe_image_proxy_url("http://192.168.1.1/admin")
             assert not _is_safe_image_proxy_url("https://malicious-site.com/avatar.jpg")
             assert _is_safe_image_proxy_url("https://scontent.cdninstagram.com/v/t51.2885-19/test.jpg")
-            assert _is_safe_image_proxy_url("https://instagram.fsnc1-1.fna.fbcdn.net/v/t51.2885-15/pic.jpg")
+            assert _is_safe_image_proxy_url("https://www.instagram.com/static/images/ico/favicon.ico")
 
             ssrf_local = await client.get("/api/v1/proxy/image?url=http://127.0.0.1:8484/health")
             assert ssrf_local.status_code == 400
@@ -169,6 +169,30 @@ async def test_security_hardening():
                 db_stored_cookie = raw_db_row[0]
                 assert db_stored_cookie.startswith("enc:"), f"Expected encrypted column value starting with enc:, got: {db_stored_cookie}"
                 assert "999888777666abcdef" not in db_stored_cookie, "Plaintext cookie was leaked directly into SQLite database file!"
+
+            # 10. Verify Legacy Plaintext Migration on Startup
+            async with db_module.AsyncSessionLocal() as db:
+                from sqlalchemy import text
+                await db.execute(text("INSERT INTO user_sessions (username, session_cookie, is_active, created_at) VALUES ('legacy_unencrypted_user', 'legacy_plaintext_session_12345', 1, CURRENT_TIMESTAMP)"))
+                await db.commit()
+
+            # Trigger database init/migration
+            await db_module.init_db()
+
+            async with db_module.AsyncSessionLocal() as db:
+                from sqlalchemy import text
+                migrated_row = (await db.execute(text("SELECT session_cookie FROM user_sessions WHERE username = 'legacy_unencrypted_user'"))).fetchone()
+                assert migrated_row is not None
+                assert migrated_row[0].startswith("enc:"), f"Legacy record was not auto-migrated to encrypted ciphertext! Found: {migrated_row[0]}"
+                assert "legacy_plaintext_session_12345" not in migrated_row[0]
+
+                # Verify transparent read in Python
+                res = await db.execute(select(UserSession).where(UserSession.username == "legacy_unencrypted_user"))
+                legacy_sess = res.scalars().first()
+                assert legacy_sess.session_cookie == "legacy_plaintext_session_12345"
+
+            # 11. Verify Unresolvable Hostname / DNS failure fails closed
+            assert not _is_safe_image_proxy_url("https://nonexistent-fake-subdomain.cdninstagram.com/pic.jpg")
 
     finally:
         await test_engine.dispose()

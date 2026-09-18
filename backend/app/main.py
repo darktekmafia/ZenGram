@@ -121,16 +121,19 @@ def _is_safe_image_proxy_url(url_str: str) -> bool:
         if not any(hostname == d or hostname.endswith("." + d) for d in ALLOWED_IMAGE_DOMAINS):
             return False
 
-        # Verify resolved IP addresses against private / loopback ranges (anti-DNS rebinding)
+        # Verify resolved IP addresses against private / loopback ranges (fail closed on DNS resolution failure)
         try:
-            addr_info = socket.getaddrinfo(hostname, None)
+            addr_info = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
+            if not addr_info:
+                return False
             for item in addr_info:
                 ip_str = item[4][0]
                 ip = ipaddress.ip_address(ip_str)
                 if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
                     return False
-        except Exception:
-            pass
+        except (socket.gaierror, socket.error, Exception):
+            # If DNS resolution fails, reject the URL immediately (fail closed)
+            return False
 
         return True
     except Exception:
@@ -209,7 +212,7 @@ async def proxy_image(
         except Exception:
             pass
 
-    async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=False, trust_env=False) as client:
         current_fetch_url = target_url
         max_redirects = 3
         res = None
