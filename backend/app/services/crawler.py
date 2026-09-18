@@ -3,7 +3,7 @@ import datetime
 import random
 import logging
 from typing import Optional, Dict, Any
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from backend.app.database import AsyncSessionLocal
 from backend.app.models import WatchedProfile, MediaItem, UserSession, AppSettings
 from backend.app.services.scraper import InstagramScraperEngine
@@ -80,7 +80,13 @@ class FeedCrawlerService:
                 # 3. Fetch followed / watched profiles enabled for sync
                 prof_stmt = (
                     select(WatchedProfile)
-                    .where(WatchedProfile.auto_sync_enabled == True)
+                    .where(
+                        or_(
+                            WatchedProfile.auto_sync_enabled == True,
+                            WatchedProfile.auto_sync_enabled.is_(None),
+                            WatchedProfile.is_unfollowed_track == False
+                        )
+                    )
                     .order_by(WatchedProfile.last_synced_at.asc().nullsfirst())
                 )
                 prof_res = await db.execute(prof_stmt)
