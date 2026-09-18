@@ -11,6 +11,7 @@ export default function Header({
   onRunSync,
   onOpenTrackModal,
   syncing,
+  crawlerStatus,
   systemVersion,
   onOpenUpdateModal
 }) {
@@ -134,9 +135,20 @@ export default function Header({
                   <span>Track Account</span>
                 </button>
 
-                <button className="btn-primary" onClick={onRunSync} disabled={syncing}>
-                  <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
-                  <span>{syncing ? 'Syncing...' : 'Run Full Sync'}</span>
+                <button
+                  className="btn-primary"
+                  onClick={onRunSync}
+                  disabled={syncing || crawlerStatus?.is_running}
+                  title={crawlerStatus?.is_running ? crawlerStatus.status_message : 'Sync followed accounts and crawl recent feed media'}
+                >
+                  <RefreshCw size={16} className={syncing || crawlerStatus?.is_running ? 'animate-spin' : ''} />
+                  <span>
+                    {crawlerStatus?.is_running
+                      ? `Syncing (${crawlerStatus.current_index}/${crawlerStatus.total_accounts})...`
+                      : syncing
+                      ? 'Syncing...'
+                      : 'Run Full Sync'}
+                  </span>
                 </button>
               </>
             )}

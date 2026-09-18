@@ -15,6 +15,7 @@ from backend.app.api.settings import router as settings_router
 from backend.app.api.system import router as system_router
 
 from backend.app.services.scraper import rate_tracker
+from backend.app.services.crawler import feed_crawler
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -43,7 +44,15 @@ async def lifespan(app: FastAPI):
         if any_updated:
             await db.commit()
 
+    # Start background auto-sync scheduler
+    feed_crawler.start_scheduler()
+
     yield
+
+    # Clean shutdown of scheduler and any running crawl
+    feed_crawler.stop_scheduler()
+    feed_crawler.stop_crawl()
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

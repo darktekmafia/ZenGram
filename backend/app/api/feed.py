@@ -7,11 +7,13 @@ from backend.app.models import MediaItem, WatchedProfile, UserSession
 from backend.app.schemas import MediaItemResponse, PaginatedMediaResponse
 from backend.app.services.scraper import InstagramScraperEngine
 
+from backend.app.services.crawler import feed_crawler
+
 router = APIRouter(prefix="/feed", tags=["Feed"])
 
 @router.post("/sync")
 async def trigger_full_sync(db: AsyncSession = Depends(get_db)):
-    """Trigger a full sync of followed accounts and feed items."""
+    """Trigger a full sync of followed accounts and launch background feed crawler."""
     res = await db.execute(select(UserSession).where(UserSession.is_active == True))
     session = res.scalars().first()
     cookie = session.session_cookie if session else None
@@ -32,7 +34,8 @@ async def trigger_full_sync(db: AsyncSession = Depends(get_db)):
                         ig_user_id=item.get("ig_user_id"),
                         full_name=item.get("full_name"),
                         profile_pic_url=item.get("profile_pic_url"),
-                        is_unfollowed_track=False
+                        is_unfollowed_track=False,
+                        auto_sync_enabled=True
                     )
                     db.add(new_p)
                     imported_accounts += 1
@@ -47,11 +50,27 @@ async def trigger_full_sync(db: AsyncSession = Depends(get_db)):
             import logging
             logging.getLogger("zengram.feed").error(f"Error syncing followed accounts during full sync: {e}")
 
+    # Launch non-blocking background crawler for media
+    started = await feed_crawler.start_crawl()
+
     return {
         "status": "success",
-        "message": f"Full sync completed. Followed accounts synced: {imported_accounts}",
-        "new_accounts_imported": imported_accounts
+        "message": f"Followed accounts synced: {imported_accounts}. Background feed crawler {'started' if started else 'already active'}.",
+        "new_accounts_imported": imported_accounts,
+        "crawler": feed_crawler.get_status()
     }
+
+@router.get("/sync-status")
+async def get_sync_status():
+    """Get the current background feed crawler status."""
+    return feed_crawler.get_status()
+
+@router.post("/sync-stop")
+async def stop_sync():
+    """Request stopping the background feed crawler."""
+    feed_crawler.stop_crawl()
+    return {"status": "success", "message": "Stopping background sync", "crawler": feed_crawler.get_status()}
+
 
 
 @router.get("", response_model=PaginatedMediaResponse)

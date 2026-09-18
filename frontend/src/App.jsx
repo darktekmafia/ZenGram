@@ -23,6 +23,14 @@ export default function App() {
   const [isTrackModalOpen, setIsTrackModalOpen] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncingFollowed, setSyncingFollowed] = useState(false)
+  const [crawlerStatus, setCrawlerStatus] = useState({
+    is_running: false,
+    current_username: '',
+    current_index: 0,
+    total_accounts: 0,
+    new_posts_saved: 0,
+    status_message: 'Idle'
+  })
   const [selectedUserFilter, setSelectedUserFilter] = useState(null)
   const [sessionInput, setSessionInput] = useState('')
   const [sessionUsernameInput, setSessionUsernameInput] = useState('')
@@ -508,15 +516,70 @@ export default function App() {
     }
   }, [interactiveLoginState?.is_running])
 
+  const fetchCrawlerStatus = async () => {
+    try {
+      const res = await fetch('/api/v1/feed/sync-status')
+      if (res.ok) {
+        const data = await res.json()
+        setCrawlerStatus(data)
+        return data
+      }
+    } catch (err) {
+      console.error('Error fetching crawler status:', err)
+    }
+    return null
+  }
+
+  const handleStopSync = async () => {
+    try {
+      const res = await fetch('/api/v1/feed/sync-stop', { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.crawler) setCrawlerStatus(data.crawler)
+      }
+    } catch (err) {
+      console.error('Error stopping sync:', err)
+    }
+  }
+
+  useEffect(() => {
+    fetchCrawlerStatus()
+  }, [])
+
+  useEffect(() => {
+    let timer = null
+    if (crawlerStatus?.is_running) {
+      timer = setInterval(async () => {
+        const status = await fetchCrawlerStatus()
+        if (status) {
+          // Progressively refresh the feed & profiles during crawl
+          fetchFeed(1, false)
+          fetchProfiles()
+          if (!status.is_running) {
+            fetchAppStats()
+            fetchRateLimit()
+          }
+        }
+      }, 2500)
+    }
+    return () => {
+      if (timer) clearInterval(timer)
+    }
+  }, [crawlerStatus?.is_running])
+
   const handleRunSync = async () => {
     setSyncing(true)
     const startTime = Date.now()
     try {
-      // 1. Trigger backend feed & followed accounts sync
+      // 1. Trigger backend feed & followed accounts sync & crawler
       const res = await fetch('/api/v1/feed/sync', { method: 'POST' })
-      if (!res.ok) {
+      if (res.ok) {
+        const data = await res.json()
+        if (data.crawler) setCrawlerStatus(data.crawler)
+      } else {
         await fetch('/api/v1/profiles/sync-following', { method: 'POST' })
       }
+      await fetchCrawlerStatus()
     } catch (err) {
       console.error('Error running full sync:', err)
     } finally {
@@ -967,12 +1030,67 @@ export default function App() {
           onRunSync={handleRunSync}
           onOpenTrackModal={() => setIsTrackModalOpen(true)}
           syncing={syncing}
+          crawlerStatus={crawlerStatus}
           systemVersion={systemVersion}
           onOpenUpdateModal={() => setIsUpdateModalOpen(true)}
           onNavigateToSettings={navigateToSettingsSection}
         />
 
         <div className="content-body">
+          {/* Active Background Feed Crawler Banner */}
+          {crawlerStatus?.is_running && activeTab === 'dashboard' && (
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(30, 58, 138, 0.25), rgba(15, 23, 42, 0.4))',
+              border: '1px solid rgba(59, 130, 246, 0.35)',
+              borderRadius: '12px',
+              padding: '14px 18px',
+              marginBottom: '20px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+              backdropFilter: 'blur(10px)',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.2)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <RefreshCw size={16} className="animate-spin" style={{ color: '#60a5fa' }} />
+                  <span style={{ fontWeight: 600, fontSize: '0.92rem', color: '#93c5fd' }}>
+                    Syncing Followed Accounts Feed ({crawlerStatus.current_index} of {crawlerStatus.total_accounts})
+                  </span>
+                  {crawlerStatus.current_username && (
+                    <span className="unfollowed-tag" style={{ fontSize: '0.78rem' }}>
+                      @{crawlerStatus.current_username}
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  {crawlerStatus.new_posts_saved > 0 && (
+                    <span style={{ fontSize: '0.82rem', color: '#34d399', fontWeight: 600 }}>
+                      +{crawlerStatus.new_posts_saved} new posts saved
+                    </span>
+                  )}
+                  <button
+                    className="btn-secondary"
+                    style={{ padding: '4px 12px', fontSize: '0.76rem', color: '#f87171', borderColor: 'rgba(248, 113, 113, 0.3)' }}
+                    onClick={handleStopSync}
+                  >
+                    Cancel Sync
+                  </button>
+                </div>
+              </div>
+              
+              {/* Progress bar */}
+              <div style={{ width: '100%', height: '5px', background: 'rgba(255, 255, 255, 0.08)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%',
+                  width: `${crawlerStatus.total_accounts > 0 ? (crawlerStatus.current_index / crawlerStatus.total_accounts) * 100 : 0}%`,
+                  background: 'linear-gradient(90deg, #3b82f6, #60a5fa, #93c5fd)',
+                  borderRadius: '4px',
+                  transition: 'width 0.4s ease'
+                }} />
+              </div>
+            </div>
+          )}
           {selectedUserFilter && (activeTab === 'dashboard' || activeTab === 'downloads') && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
               <span style={{ fontSize: '0.88rem', color: 'var(--text-muted)' }}>Filtering by account:</span>
