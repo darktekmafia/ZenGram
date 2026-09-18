@@ -160,24 +160,32 @@ export default function MediaCard({ item, onSaveMedia, onDeleteMedia }) {
   }
 
   const getSlideSrc = () => {
+    let rawUrl = null
     // If it is a video, return the image thumbnail URL (never an MP4 video file path)
     if (isPostVideo) {
       if (currentSlide && (currentSlide.thumbnail_url || currentSlide.display_url)) {
-        return currentSlide.thumbnail_url || currentSlide.display_url
+        rawUrl = currentSlide.thumbnail_url || currentSlide.display_url
+      } else {
+        rawUrl = item.thumbnail_url || item.display_url
       }
-      return item.thumbnail_url || item.display_url
-    }
-
-    if (item.is_saved) {
+    } else if (item.is_saved) {
       if (currentSlide && currentSlide.view_url) {
         return currentSlide.view_url
       }
       return `/api/v1/downloads/view/${item.post_id}?index=${activeSlide + 1}`
+    } else if (currentSlide) {
+      rawUrl = currentSlide.thumbnail_url || currentSlide.display_url || currentSlide.url || item.thumbnail_url || item.display_url
+    } else {
+      rawUrl = item.thumbnail_url || item.display_url
     }
-    if (currentSlide) {
-      return currentSlide.thumbnail_url || currentSlide.display_url || currentSlide.url || item.thumbnail_url || item.display_url
+
+    if (!rawUrl) return null
+    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+      if (rawUrl.includes('fbcdn.net') || rawUrl.includes('instagram.com') || rawUrl.includes('cdninstagram.com')) {
+        return `/api/v1/proxy/image?url=${encodeURIComponent(rawUrl)}`
+      }
     }
-    return item.thumbnail_url || item.display_url
+    return rawUrl
   }
 
   const handlePlayVideo = async (e) => {

@@ -521,8 +521,8 @@ export default function App() {
         fetchDownloadedContent(),
         fetchRateLimit(),
         fetchSystemVersion(),
-        fetchStats?.(),
-        fetchHardware?.()
+        fetchAppStats(),
+        fetchSystemHardware()
       ])
 
       // Ensure minimum visual feedback duration so user clearly sees "Syncing..." state
