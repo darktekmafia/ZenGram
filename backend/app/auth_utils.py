@@ -56,8 +56,11 @@ def _get_or_create_jwt_secret() -> str:
             f.write(new_secret)
         return new_secret
     except Exception as e:
-        logger.warning(f"Could not read/write persistent secret file: {e}")
-        return "zengram-secure-default-fallback-key-2026"
+        logger.critical(f"FATAL: Unable to load or generate persistent JWT secret key: {e}")
+        raise RuntimeError(
+            f"Security initialization failure: Unable to read or persist JWT secret key at {SECRET_FILE_PATH}. "
+            "ZenGram cannot start with an insecure or unpersisted key. Please check directory permissions or set ZENGRAM_JWT_SECRET."
+        ) from e
 
 
 JWT_SECRET = _get_or_create_jwt_secret()
@@ -104,17 +107,15 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
 
 async def get_current_admin(request: Request, db: AsyncSession = Depends(get_db)) -> AdminUser:
     """
-    FastAPI dependency that enforces authentication:
+    FastAPI dependency for general app endpoints:
     - Reads the secure HttpOnly cookie `zengram_token` / `instasave_token` (or `Authorization: Bearer <token>` header).
     - If no admin is configured, raises HTTP 401 Unauthorized (system setup required).
     - If authentication requirement has been explicitly disabled by the user, allows access.
     - If enabled and unauthenticated, raises HTTP 401 Unauthorized.
     """
-    # 1. Check if any admin user exists
     result = await db.execute(select(AdminUser))
     admin = result.scalars().first()
 
-    # If no admin account created yet, block protected endpoints until setup is completed
     if not admin:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -122,11 +123,9 @@ async def get_current_admin(request: Request, db: AsyncSession = Depends(get_db)
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # If auth requirement has been explicitly disabled by the user
     if not admin.auth_enabled:
         return admin
 
-    # 2. Extract token from HttpOnly cookie or Authorization header
     token = request.cookies.get("zengram_token") or request.cookies.get("instasave_token")
     if not token:
         auth_header = request.headers.get("Authorization")
@@ -137,6 +136,54 @@ async def get_current_admin(request: Request, db: AsyncSession = Depends(get_db)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required. Please log in.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    payload = decode_access_token(token)
+    if not payload or not payload.get("sub"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired session token. Please log in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    username = payload.get("sub")
+    if admin.username.lower() != username.lower():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not recognized.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return admin
+
+
+async def require_admin_auth(request: Request, db: AsyncSession = Depends(get_db)) -> AdminUser:
+    """
+    Strict FastAPI dependency for credential management & security changes:
+    - ALWAYS requires valid JWT authentication, regardless of whether general auth_enabled is toggled off.
+    - Protects master password, Instagram session tokens, and security settings.
+    """
+    result = await db.execute(select(AdminUser))
+    admin = result.scalars().first()
+
+    if not admin:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="System setup required. Please configure master administrator password.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = request.cookies.get("zengram_token") or request.cookies.get("instasave_token")
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ", 1)[1]
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Master authentication required for credential and security management.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

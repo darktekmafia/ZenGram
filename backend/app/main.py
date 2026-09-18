@@ -194,16 +194,34 @@ async def proxy_image(
         except Exception:
             pass
 
-    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-        try:
-            res = await client.get(
-                target_url,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-                    "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-                    "Referer": "https://www.instagram.com/",
-                }
-            )
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+        current_fetch_url = target_url
+        max_redirects = 3
+        res = None
+
+        for _ in range(max_redirects + 1):
+            if not _is_safe_image_proxy_url(current_fetch_url):
+                raise HTTPException(status_code=400, detail="Redirect destination is not permitted by image proxy policy.")
+
+            try:
+                res = await client.get(
+                    current_fetch_url,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+                        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                        "Referer": "https://www.instagram.com/",
+                    }
+                )
+            except Exception:
+                break
+
+            if res.status_code in (301, 302, 303, 307, 308):
+                location = res.headers.get("Location")
+                if not location:
+                    break
+                current_fetch_url = urllib.parse.urljoin(current_fetch_url, location)
+                continue
+
             if res.status_code == 200:
                 # Save to disk cache for permanent local serving
                 try:
@@ -221,8 +239,8 @@ async def proxy_image(
                         "Access-Control-Allow-Origin": "*",
                     }
                 )
-        except Exception:
-            pass
+            else:
+                break
     raise HTTPException(status_code=404, detail="Failed to proxy image")
 
 # Serve Frontend static assets if dist folder exists

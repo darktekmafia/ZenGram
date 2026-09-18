@@ -15,7 +15,8 @@ from backend.app.schemas import (
     AdminSecuritySettingsRequest, AuthStatusResponse
 )
 from backend.app.auth_utils import (
-    hash_password, verify_password, create_access_token, decode_access_token, get_current_admin
+    hash_password, verify_password, create_access_token, decode_access_token,
+    get_current_admin, require_admin_auth
 )
 
 logger = logging.getLogger(__name__)
@@ -165,7 +166,7 @@ async def logout_admin(response: Response):
 @router.post("/change-password")
 async def change_admin_password(
     data: AdminChangePasswordRequest,
-    current_admin: AdminUser = Depends(get_current_admin),
+    current_admin: AdminUser = Depends(require_admin_auth),
     db: AsyncSession = Depends(get_db)
 ):
     """Change the master admin password."""
@@ -189,7 +190,7 @@ async def change_admin_password(
 @router.post("/security-settings")
 async def update_security_settings(
     data: AdminSecuritySettingsRequest,
-    current_admin: AdminUser = Depends(get_current_admin),
+    current_admin: AdminUser = Depends(require_admin_auth),
     db: AsyncSession = Depends(get_db)
 ):
     """Toggle master authentication requirement on/off."""
@@ -212,7 +213,7 @@ async def update_security_settings(
 
 @router.get("/session", response_model=UserSessionResponse)
 async def get_current_session(
-    current_admin: AdminUser = Depends(get_current_admin),
+    current_admin: AdminUser = Depends(require_admin_auth),
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(UserSession).where(UserSession.is_active == True))
@@ -272,7 +273,7 @@ async def get_current_session(
 
 @router.post("/session/refresh-avatar", response_model=UserSessionResponse)
 async def refresh_session_avatar(
-    current_admin: AdminUser = Depends(get_current_admin),
+    current_admin: AdminUser = Depends(require_admin_auth),
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(UserSession).where(UserSession.is_active == True))
@@ -308,7 +309,7 @@ async def refresh_session_avatar(
 @router.post("/session", response_model=UserSessionResponse)
 async def create_session(
     data: UserSessionCreate,
-    current_admin: AdminUser = Depends(get_current_admin),
+    current_admin: AdminUser = Depends(require_admin_auth),
     db: AsyncSession = Depends(get_db)
 ):
     raw_cookie = data.session_cookie or ""
@@ -379,7 +380,7 @@ async def create_session(
 @router.post("/session/test")
 async def test_instagram_session(
     data: UserSessionCreate,
-    current_admin: AdminUser = Depends(get_current_admin),
+    current_admin: AdminUser = Depends(require_admin_auth),
     db: AsyncSession = Depends(get_db)
 ):
     """Test if a given Instagram session cookie (or currently saved session) is valid and active with Instagram."""
@@ -451,7 +452,7 @@ def has_graphical_display() -> bool:
 
 
 @router.get("/display-info")
-async def get_display_info(current_admin: AdminUser = Depends(get_current_admin)):
+async def get_display_info(current_admin: AdminUser = Depends(require_admin_auth)):
     """Return whether the current server has a graphical display available for headful browser actions."""
     has_display = has_graphical_display()
     display_var = os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY") or "None"
@@ -642,7 +643,7 @@ async def _run_interactive_login_task():
 @router.post("/interactive-login")
 async def start_interactive_login(
     background_tasks: BackgroundTasks,
-    current_admin: AdminUser = Depends(get_current_admin)
+    current_admin: AdminUser = Depends(require_admin_auth)
 ):
     """Launch a visible Chromium window on the host for user login and automated cookie extraction."""
     global interactive_login_state
@@ -671,7 +672,7 @@ async def start_interactive_login(
 
 
 @router.get("/interactive-login/status")
-async def get_interactive_login_status(current_admin: AdminUser = Depends(get_current_admin)):
+async def get_interactive_login_status(current_admin: AdminUser = Depends(require_admin_auth)):
     """Poll the status of the current interactive login session."""
     return {
         "is_running": interactive_login_state["is_running"],
@@ -684,7 +685,7 @@ async def get_interactive_login_status(current_admin: AdminUser = Depends(get_cu
 
 
 @router.post("/interactive-login/cancel")
-async def cancel_interactive_login(current_admin: AdminUser = Depends(get_current_admin)):
+async def cancel_interactive_login(current_admin: AdminUser = Depends(require_admin_auth)):
     """Cancel the active interactive browser login session and close the browser."""
     global interactive_login_state, _active_browser, _playwright_instance
     if interactive_login_state["is_running"]:
