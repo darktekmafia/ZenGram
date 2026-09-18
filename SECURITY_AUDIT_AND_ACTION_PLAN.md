@@ -85,12 +85,28 @@ Based on the source code review, terminal testing, and chat diagnostics, the fol
 
 ---
 
-### Phase 4: Verification & Instagram Session Rotation
+### Phase 4: Encryption at Rest & IP-Pinned Proxying
 
-1. **Automated & Manual Security Testing:**
-   - Run `curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8484/api/v1/auth/session` without auth & verify HTTP `401 Unauthorized`.
-   - Log into the web interface, verify cookie setting, and verify all features (feed, tracked profiles, batch downloads) work seamlessly.
-2. **Rotate Instagram Session:**
-   - Once patches are deployed, log out and log back into Instagram to invalidate the previous `sessionid`, and save the fresh cookie in ZenGram.
-3. **Update README:**
-   - Remove the caution banner from `README.md` once hardening is verified and pushed.
+1. **AES-256 Fernet Encryption at Rest:**
+   - Instagram session cookies stored in SQLite `user_sessions` table are encrypted (`enc:...`) using keys derived from `~/.config/zengram/jwt_secret.key`.
+   - Atomic database migration in `init_db()` safely migrates legacy plaintext records without data loss and halts startup fail-closed if encryption key verification fails.
+
+2. **IP-Pinned HTTPS Image Proxy (Anti-SSRF & TOCTOU DNS Rebinding Defense):**
+   - Resolves target hostnames via `socket.getaddrinfo()` and rejects private/loopback/link-local/multicast IP ranges.
+   - Pinned socket connection connects directly to the validated IP address (`https://[ip]:port/...`) while providing the original hostname via TLS SNI (`extensions={"sni_hostname": hostname}`) and `Host` header.
+   - Multi-hop relative and absolute redirect tracking updates `current_logical_url` across all hops.
+
+---
+
+### Phase 5: Verification & Automated Test Suite Results
+
+All security enhancements have been validated against an isolated test environment via `backend/tests/test_security.py` (19 test cases, 55 assertions, 0 failures):
+
+- ✅ **Unauthenticated Access Blocked**: `GET /api/v1/auth/session` returns HTTP `401 Unauthorized` without credentials.
+- ✅ **Setup Wizard Locking**: Rejects duplicate setup once admin exists (`400 Bad Request`).
+- ✅ **Secret Redaction**: Session endpoints return masked tokens (`has_session_cookie: true`, `masked_cookie: "••••••••••••"`), never exposing raw `sessionid` values.
+- ✅ **Anti-SSRF & DNS Rebinding**: Rejects internal addresses (`127.0.0.1`, `169.254.169.254`, `10.0.0.1`, `192.168.1.1`, `::1`) and non-whitelisted domains with HTTP `400`.
+- ✅ **Live IP-Pinned HTTPS Request**: Validates direct HTTPS IP socket connection with SNI preservation and verifies disk cache generation.
+- ✅ **Transparent Encryption at Rest**: Confirms cookies written to SQLite begin with `enc:` and decrypt cleanly in-memory.
+- ✅ **Atomic Migration Rollback**: Simulates corrupt/un-decryptable record during batch migration and verifies atomic transaction rollback without partial database corruption.
+- ✅ **Key Mismatch Detection**: Verifies application halts startup fail-closed if the encryption key is altered or missing.

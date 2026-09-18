@@ -51,13 +51,18 @@ When running inside a headless Proxmox LXC container or server:
 | `uvicorn[standard]` | `>=0.28.0` | High-performance ASGI web server |
 | `pydantic` | `>=2.6.0` | Data parsing and validation schemas |
 | `pydantic-settings` | `>=2.2.0` | Environment and settings management |
-| `httpx[http2]` | `>=0.27.0` | Async HTTP/2 client for high-speed scraping |
+| `httpx[http2]` | `>=0.27.0` | Async HTTP/2 client for high-speed scraping and IP-pinned proxying |
 | `instaloader` | `>=4.10.0` | Secondary Instagram media probe engine |
 | `playwright` | `>=1.42.0` | Headless Chromium browser automation |
 | `sqlalchemy` | `>=2.0.0` | Async ORM database interface |
 | `aiosqlite` | `>=0.20.0` | Async SQLite driver with WAL support |
 | `pillow` | `>=10.2.0` | Image thumbnail processing & metadata extraction |
 | `python-multipart` | `>=0.0.9` | Multipart form data support for file uploads |
+| `bcrypt` | `>=4.0.0` | Secure password hashing algorithm |
+| `passlib[bcrypt]` | `>=1.7.4` | Password hashing and verification framework |
+| `pyjwt` | `>=2.8.0` | Cryptographically signed JSON Web Tokens for authentication |
+| `psutil` | `>=5.9.0` | Host and container CPU, RAM, Swap, and Disk telemetry |
+| `cryptography` | `>=42.0.0` | AES-256 Fernet symmetric encryption at rest for session credentials |
 
 ---
 
@@ -72,7 +77,22 @@ When running inside a headless Proxmox LXC container or server:
 
 ---
 
-## 6. Version Tracking & Upgrades
+## 6. Security, Encryption & Storage Specifications
+
+| Security Domain | Specification | Implementation Detail |
+| :--- | :--- | :--- |
+| **Master Authentication** | Bcrypt (Salted) | Salted hash stored in `admin_users` table |
+| **JWT Access Tokens** | HS256 Signed JWT | 24-hour expiration, stored in `HttpOnly`, `SameSite=Lax` cookies |
+| **Credential Encryption at Rest** | Fernet (AES-128-CBC / AES-256 HMAC-SHA256) | Encrypts `session_cookie` (`enc:...`) in SQLite database |
+| **Encryption Key Storage** | `~/.config/zengram/jwt_secret.key` | Permissions `0600`, directory `0700` |
+| **Database File Permissions** | `0600` | `zengram.db`, `zengram.db-wal`, `zengram.db-shm` |
+| **Storage Directory Permissions** | `0700` | `storage/`, `storage/cache/images/` |
+| **Anti-SSRF & DNS Rebinding** | IP-Pinned HTTPS Transport | Validates against private/loopback/multicast CIDRs with SNI preservation |
+| **Hot Backups** | WAL-Safe SQLite Backup | `sqlite3 zengram.db ".backup backup.db"` |
+
+---
+
+## 7. Version Tracking & Upgrades
 
 ZenGram includes a built-in **Version Tracker**:
 - Query current version and commit status via `GET /api/v1/system/version`.

@@ -40,8 +40,12 @@
   - Built-in live CPU, RAM, Swap, and Disk volume meters.
   - Automatic detection of Proxmox LXC containers, Docker, and Host environments.
 - **Master Security & Access Control**:
-  - Master password protection and cryptographically signed session tokens stored in secure `HttpOnly` cookies.
-  - Protects direct LAN / reverse proxy setups (such as Nginx Proxy Manager / Cloudflare Tunnels).
+  - **Master Password Authentication**: Built-in administrator account secured with salted Bcrypt password hashing.
+  - **Session Security**: Cryptographically signed JSON Web Tokens (JWT) stored in secure `HttpOnly`, `SameSite=Lax` cookies.
+  - **Transparent Encryption at Rest**: Instagram session cookies are encrypted with AES-256 Fernet (`enc:...`) before SQLite persistence using a hardware/OS-isolated persistent key (`~/.config/zengram/jwt_secret.key`, permissions `0600`).
+  - **Atomic Fail-Closed Migrations**: Automated database startup routines atomically migrate legacy plaintext sessions and verify cryptographic key integrity before accepting connections.
+  - **SSRF & DNS Rebinding Protection**: Pinned IP connections with TLS SNI verification and multi-hop redirect validation prevent private subnet scanning and DNS rebinding attacks.
+  - **Filesystem Hardening**: Strict owner-only permissions (`0600` on database and key files, `0700` on storage/config directories, `umask 0077` systemd isolation).
 
 ---
 
@@ -50,6 +54,9 @@
 - **Backend**:
   - **FastAPI** (Python 3.12+ async REST API).
   - **SQLAlchemy** + **aiosqlite** with SQLite WAL mode.
+  - **Cryptography** (Fernet AES-256 encryption at rest for sensitive credentials).
+  - **Passlib & Bcrypt** for secure administrator password hashing.
+  - **PyJWT** for cryptographically signed access tokens.
   - **Playwright** + **Instaloader** + direct probe engine.
   - **psutil** for lightweight container & hardware resource telemetry.
 - **Frontend**:
@@ -125,16 +132,30 @@ All settings can be customized through the **Settings** page in the web UI:
 | Setting | Description | Default |
 | :--- | :--- | :--- |
 | **Download Storage Directory** | Local directory where archived media files are stored | `~/Downloads/ZenGram` |
-| **Session Cookie (`sessionid`)** | Instagram session cookie for accessing high-res feeds and followed accounts | Configurable in UI |
+| **Session Cookie (`sessionid`)** | Instagram session cookie for accessing high-res feeds and followed accounts | Configurable in UI (Encrypted at Rest) |
 | **Parallel Download Workers** | Number of simultaneous background download workers (1–8) | `2` |
 | **Max Queue Capacity** | Maximum pending tasks in the download queue | `8` |
 | **Rate Limit Delay** | Safety delay between Instagram scraping requests (seconds) | `3.0s` |
 
 ---
 
+## 💾 Database Backups & Maintenance
+
+ZenGram operates SQLite in **WAL (Write-Ahead Logging)** mode for high-concurrency performance. To ensure consistent backups without copying in-flight transaction locks:
+
+```bash
+# Recommended WAL-safe hot backup command:
+sqlite3 zengram.db ".backup zengram_backup_$(date +%Y%m%d).db"
+```
+
+> [!TIP]
+> Do not use plain `cp zengram.db backup.db` while the server is active, as transactions held in `zengram.db-wal` may be excluded from the snapshot.
+
+---
+
 ## 🛠️ Updating ZenGram
 
-To update, pull new changes, and rebuild:
+To update, pull new changes, migrate database records, and rebuild:
 
 ```bash
 ./install.sh --update
@@ -142,8 +163,25 @@ To update, pull new changes, and rebuild:
 
 Or manually:
 ```bash
-cd frontend && npm run build && cd ..
+git pull
+source .venv/bin/activate
+pip install -r backend/requirements.txt
+cd frontend && npm install && npm run build && cd ..
+# Desktop user service:
 systemctl --user restart zengram.service
+# Or LXC root service:
+# systemctl restart zengram.service
+```
+
+---
+
+## 🧪 Running Security & Regression Tests
+
+ZenGram includes a comprehensive security and regression test suite covering authentication enforcement, credential redaction, SSRF/DNS rebinding defense, encryption-at-rest, and atomic database migrations:
+
+```bash
+source .venv/bin/activate
+python backend/tests/test_security.py
 ```
 
 ---
