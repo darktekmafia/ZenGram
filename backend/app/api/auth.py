@@ -48,7 +48,7 @@ async def get_auth_status(request: Request, db: AsyncSession = Depends(get_db)):
         )
 
     # Check HttpOnly cookie or Authorization header
-    token = request.cookies.get("instasave_token")
+    token = request.cookies.get("zengram_token") or request.cookies.get("instasave_token")
     if not token:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
@@ -99,7 +99,7 @@ async def setup_admin_account(data: AdminSetupRequest, response: Response, db: A
     # Generate token & set HttpOnly cookie
     token = create_access_token({"sub": new_admin.username})
     response.set_cookie(
-        key="instasave_token",
+        key="zengram_token",
         value=token,
         httponly=True,
         samesite="lax",
@@ -136,7 +136,7 @@ async def login_admin(data: AdminLoginRequest, response: Response, db: AsyncSess
     max_age = 30 * 86400 if data.remember_me else None
     token = create_access_token({"sub": admin.username})
     response.set_cookie(
-        key="instasave_token",
+        key="zengram_token",
         value=token,
         httponly=True,
         samesite="lax",
@@ -153,6 +153,7 @@ async def login_admin(data: AdminLoginRequest, response: Response, db: AsyncSess
 @router.post("/logout")
 async def logout_admin(response: Response):
     """Clear the HttpOnly authentication cookie."""
+    response.delete_cookie(key="zengram_token", path="/")
     response.delete_cookie(key="instasave_token", path="/")
     return {
         "status": "success",

@@ -34,7 +34,7 @@ export default function Sidebar({
           <Download size={20} />
         </div>
         <div>
-          <div className="brand-title">InstaSave</div>
+          <div className="brand-title">ZenGram</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
             <span
               className="brand-version"

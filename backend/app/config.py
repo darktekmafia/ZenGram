@@ -3,16 +3,16 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-DEFAULT_DOWNLOAD_DIR = Path.home() / "Downloads" / "InstaSave"
+DEFAULT_DOWNLOAD_DIR = Path.home() / "Downloads" / "ZenGram"
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "InstaSave"
+    PROJECT_NAME: str = "ZenGram"
     VERSION: str = "1.0.0"
     API_PREFIX: str = "/api/v1"
     
     # Paths
     BASE_DIR: Path = BASE_DIR
-    DATABASE_URL: str = f"sqlite+aiosqlite:///{BASE_DIR}/instasave.db"
+    DATABASE_URL: str = f"sqlite+aiosqlite:///{BASE_DIR}/zengram.db"
     DOWNLOAD_DIR: Path = DEFAULT_DOWNLOAD_DIR
     SESSIONS_DIR: Path = BASE_DIR / "storage" / "sessions"
     

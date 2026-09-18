@@ -22,7 +22,7 @@ from backend.app.schemas import (
     SystemHardwareResponse
 )
 
-logger = logging.getLogger("instasave.system")
+logger = logging.getLogger("zengram.system")
 
 router = APIRouter(prefix="/system", tags=["System"])
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# InstaSave - Automated Installer & Updater
+# ZenGram - Automated Installer & Updater
 # Supports Fedora, Debian, Ubuntu, Proxmox LXC, Arch Linux, and generic Linux systems.
 
 set -e
@@ -57,7 +57,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 echo "============================================================"
-echo "          InstaSave - Linux Installation & Update Engine    "
+echo "          ZenGram - Linux Installation & Update Engine      "
 echo "============================================================"
 
 # Check Update Mode Only
@@ -72,7 +72,7 @@ if [ "$CHECK_UPDATE_ONLY" -eq 1 ]; then
             echo "[*] Run '$0 --update' to apply latest changes."
             exit 2
         else
-            echo "[✓] InstaSave is up to date (Commit: $LOCAL_COMMIT)."
+            echo "[✓] ZenGram is up to date (Commit: $LOCAL_COMMIT)."
             exit 0
         fi
     else
@@ -98,75 +98,65 @@ detect_and_install_deps() {
     if command -v dnf &> /dev/null; then
         PM="dnf"
         INSTALL_CMD="sudo dnf install -y"
-        PKG_LIST="python3 python3-pip python3-devel ffmpeg nodejs npm sqlite git"
     elif command -v apt-get &> /dev/null; then
         PM="apt"
-        INSTALL_CMD="sudo DEBIAN_FRONTEND=noninteractive apt-get install -y"
-        PKG_LIST="python3 python3-pip python3-venv python3-dev ffmpeg nodejs npm sqlite3 git"
         if [ "$(id -u)" -eq 0 ]; then
-            INSTALL_CMD="DEBIAN_FRONTEND=noninteractive apt-get install -y"
+            INSTALL_CMD="apt-get update -qq && apt-get install -y"
+        else
+            INSTALL_CMD="sudo apt-get update -qq && sudo apt-get install -y"
         fi
     elif command -v pacman &> /dev/null; then
         PM="pacman"
-        INSTALL_CMD="sudo pacman -S --noconfirm --needed"
-        PKG_LIST="python python-pip ffmpeg nodejs npm sqlite git"
+        INSTALL_CMD="sudo pacman -S --noconfirm"
     elif command -v zypper &> /dev/null; then
         PM="zypper"
         INSTALL_CMD="sudo zypper install -y"
-        PKG_LIST="python3 python3-pip ffmpeg nodejs npm sqlite3 git"
     else
-        PM="unknown"
+        echo "[!] Unknown package manager. Please ensure python3, python3-pip, nodejs, npm, ffmpeg, sqlite3 are installed."
+        return 0
     fi
 
-    # Check for missing commands
-    COMMAND_DEPS=("python3" "ffmpeg" "node" "npm" "git")
-    MISSING=()
-    for cmd in "${COMMAND_DEPS[@]}"; do
-        if ! command -v "$cmd" &> /dev/null; then
-            MISSING+=("$cmd")
-        fi
-    done
+    echo "[*] System package manager: $PM"
+    
+    # Required core system packages
+    PKGS_TO_INSTALL=()
+    if ! command -v python3 &> /dev/null; then PKGS_TO_INSTALL+=("python3"); fi
+    if ! command -v pip3 &> /dev/null && ! python3 -m pip --version &> /dev/null; then 
+        if [ "$PM" = "apt" ]; then PKGS_TO_INSTALL+=("python3-pip" "python3-venv"); else PKGS_TO_INSTALL+=("python3-pip"); fi
+    fi
+    if ! command -v node &> /dev/null; then PKGS_TO_INSTALL+=("nodejs"); fi
+    if ! command -v npm &> /dev/null; then PKGS_TO_INSTALL+=("npm"); fi
+    if ! command -v ffmpeg &> /dev/null; then PKGS_TO_INSTALL+=("ffmpeg"); fi
+    if ! command -v sqlite3 &> /dev/null; then PKGS_TO_INSTALL+=("sqlite3"); fi
+    if ! command -v git &> /dev/null; then PKGS_TO_INSTALL+=("git"); fi
 
-    if [ ${#MISSING[@]} -gt 0 ]; then
-        echo "[!] Missing required system packages: ${MISSING[*]}"
-        if [ "$PM" != "unknown" ]; then
-            echo "[*] Installing missing dependencies via $PM..."
-            if [ "$PM" == "apt" ]; then
-                if [ "$(id -u)" -eq 0 ]; then
-                    apt-get update -qq
-                else
-                    sudo apt-get update -qq
-                fi
-            fi
-            eval "$INSTALL_CMD $PKG_LIST"
-        else
-            echo "[ERROR] Unsupported package manager. Please install: Python 3, Node.js (v20+), npm, FFmpeg, SQLite3, and Git manually."
-            exit 1
-        fi
+    if [ ${#PKGS_TO_INSTALL[@]} -gt 0 ]; then
+        echo "[*] Installing missing system packages: ${PKGS_TO_INSTALL[*]}"
+        $INSTALL_CMD "${PKGS_TO_INSTALL[@]}"
     else
-        echo "[✓] All core system dependencies (Python, Node, npm, FFmpeg, SQLite, Git) are satisfied."
+        echo "[✓] All essential system dependencies are present."
     fi
 }
 
 detect_and_install_deps
 
-# 2. Python Virtual Environment
-echo "[2/6] Setting up Python virtual environment..."
+# 2. Python Virtual Environment (.venv)
+echo "[2/6] Setting up Python virtual environment (.venv)..."
 if [ ! -d ".venv" ]; then
     python3 -m venv .venv
+    echo "[✓] Virtual environment initialized."
 fi
 
-.venv/bin/pip install --upgrade pip --quiet
-.venv/bin/pip install -r backend/requirements.txt --quiet
-echo "[✓] Python backend dependencies installed."
+source .venv/bin/activate
+pip install --upgrade pip --quiet
 
-# 3. Playwright Chromium Installation
-echo "[3/6] Installing Playwright Chromium browser binaries..."
-.venv/bin/playwright install chromium --quiet || .venv/bin/playwright install chromium
-echo "[✓] Playwright headless browser ready."
+# 3. Install Python Dependencies
+echo "[3/6] Installing backend Python packages from requirements.txt..."
+pip install -r backend/requirements.txt --quiet
+echo "[✓] Backend dependencies installed."
 
-# 4. Frontend Compilation
-echo "[4/6] Compiling frontend production bundle..."
+# 4. Build Frontend Assets (Vite)
+echo "[4/6] Installing frontend dependencies and compiling production bundle..."
 cd "$PROJECT_DIR/frontend"
 npm install --quiet
 npm run build --quiet
@@ -178,27 +168,27 @@ if [ "$SKIP_DESKTOP" -eq 0 ] && [ -n "$DISPLAY" -o -d "$HOME/Desktop" -o -d "$HO
     echo "[5/6] Installing Desktop shortcuts and app icons..."
     mkdir -p "$HOME/Desktop" "$HOME/.local/share/applications" 2>/dev/null || true
     
-    DESKTOP_ENTRY="$HOME/.local/share/applications/instasave.desktop"
+    DESKTOP_ENTRY="$HOME/.local/share/applications/zengram.desktop"
     cat <<EOF > "$DESKTOP_ENTRY"
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=InstaSave
-GenericName=Instagram Content Saver
+Name=ZenGram
+GenericName=Instagram Content Archiver & Feed Viewer
 Comment=Local Web UI for browsing, archiving, and saving Instagram media
 Exec=xdg-open http://localhost:$APP_PORT
 Icon=$PROJECT_DIR/assets/instasave.svg
 Terminal=false
 Categories=Network;FileTransfer;Utility;
-Keywords=Instagram;Downloader;Saver;Archive;Media;
+Keywords=Instagram;Downloader;Saver;Archive;Media;ZenGram;
 StartupNotify=true
 EOF
     chmod +x "$DESKTOP_ENTRY" 2>/dev/null || true
 
     if [ -d "$HOME/Desktop" ]; then
-        cp "$DESKTOP_ENTRY" "$HOME/Desktop/InstaSave.desktop" 2>/dev/null || true
-        chmod +x "$HOME/Desktop/InstaSave.desktop" 2>/dev/null || true
-        echo "[✓] Desktop shortcut created at ~/Desktop/InstaSave.desktop"
+        cp "$DESKTOP_ENTRY" "$HOME/Desktop/ZenGram.desktop" 2>/dev/null || true
+        chmod +x "$HOME/Desktop/ZenGram.desktop" 2>/dev/null || true
+        echo "[✓] Desktop shortcut created at ~/Desktop/ZenGram.desktop"
     fi
 else
     echo "[5/6] Headless / Container environment detected. Skipping Desktop GUI shortcut."
@@ -207,8 +197,17 @@ fi
 # 6. Systemd Service Integration (Root / LXC vs User Session)
 echo "[6/6] Configuring and starting Systemd service..."
 
+# Stop any legacy instasave service if running
+if [ "$(id -u)" -eq 0 ]; then
+    systemctl stop instasave.service 2>/dev/null || true
+    systemctl disable instasave.service 2>/dev/null || true
+else
+    systemctl --user stop instasave.service 2>/dev/null || true
+    systemctl --user disable instasave.service 2>/dev/null || true
+fi
+
 SERVICE_CONTENT="[Unit]
-Description=InstaSave Local Web Service
+Description=ZenGram Local Web Service
 After=network.target
 
 [Service]
@@ -224,24 +223,24 @@ WantedBy=multi-user.target default.target"
 
 if [ "$(id -u)" -eq 0 ]; then
     # Running as Root (e.g. Proxmox LXC Container or Dedicated Linux Server)
-    SYSTEMD_PATH="/etc/systemd/system/instasave.service"
+    SYSTEMD_PATH="/etc/systemd/system/zengram.service"
     echo "$SERVICE_CONTENT" > "$SYSTEMD_PATH"
     systemctl daemon-reload
-    systemctl enable --now instasave.service
-    systemctl restart instasave.service
-    echo "[✓] System-level service 'instasave.service' enabled and active."
+    systemctl enable --now zengram.service
+    systemctl restart zengram.service
+    echo "[✓] System-level service 'zengram.service' enabled and active."
 else
     # Running as Standard User (e.g. Fedora Workstation)
     USER_SYSTEMD_DIR="$HOME/.config/systemd/user"
     mkdir -p "$USER_SYSTEMD_DIR"
-    echo "$SERVICE_CONTENT" > "$USER_SYSTEMD_DIR/instasave.service"
+    echo "$SERVICE_CONTENT" > "$USER_SYSTEMD_DIR/zengram.service"
     systemctl --user daemon-reload
-    systemctl --user enable --now instasave.service
-    systemctl --user restart instasave.service
-    echo "[✓] User-level service 'instasave.service' enabled and active."
+    systemctl --user enable --now zengram.service
+    systemctl --user restart zengram.service
+    echo "[✓] User-level service 'zengram.service' enabled and active."
 fi
 
 echo "============================================================"
-echo "   [✓] InstaSave installation & configuration complete!"
+echo "   [✓] ZenGram installation & configuration complete!"
 echo "   Access the Web UI at: http://${APP_HOST}:${APP_PORT}"
 echo "============================================================"

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 from backend.app.config import settings
 
-logger = logging.getLogger("instasave.downloader")
+logger = logging.getLogger("zengram.downloader")
 
 def _extract_via_instaloader(shortcode: str, session_cookie: Optional[str] = None) -> List[Dict[str, str]]:
     """Extract media items using Instaloader library."""

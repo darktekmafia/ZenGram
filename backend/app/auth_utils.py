@@ -10,20 +10,26 @@ from sqlalchemy import select
 from backend.app.database import get_db, AsyncSessionLocal
 from backend.app.models import AdminUser
 
-logger = logging.getLogger("instasave.auth")
+logger = logging.getLogger("zengram.auth")
 
-SECRET_FILE_PATH = os.path.expanduser("~/.config/instasave/jwt_secret.key")
+SECRET_FILE_PATH = os.path.expanduser("~/.config/zengram/jwt_secret.key")
+OLD_SECRET_FILE_PATH = os.path.expanduser("~/.config/instasave/jwt_secret.key")
 
 
 def _get_or_create_jwt_secret() -> str:
     """Retrieve or generate a persistent cryptographic JWT secret key."""
-    env_secret = os.environ.get("INSTASAVE_JWT_SECRET")
+    env_secret = os.environ.get("ZENGRAM_JWT_SECRET") or os.environ.get("INSTASAVE_JWT_SECRET")
     if env_secret:
         return env_secret
 
     try:
         if os.path.exists(SECRET_FILE_PATH):
             with open(SECRET_FILE_PATH, "r", encoding="utf-8") as f:
+                secret = f.read().strip()
+                if secret:
+                    return secret
+        elif os.path.exists(OLD_SECRET_FILE_PATH):
+            with open(OLD_SECRET_FILE_PATH, "r", encoding="utf-8") as f:
                 secret = f.read().strip()
                 if secret:
                     return secret
@@ -35,7 +41,7 @@ def _get_or_create_jwt_secret() -> str:
         return new_secret
     except Exception as e:
         logger.warning(f"Could not read/write persistent secret file: {e}")
-        return "instasave-secure-default-fallback-key-2026"
+        return "zengram-secure-default-fallback-key-2026"
 
 
 JWT_SECRET = _get_or_create_jwt_secret()
@@ -83,7 +89,7 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
 async def get_current_admin(request: Request, db: AsyncSession = Depends(get_db)) -> Optional[AdminUser]:
     """
     FastAPI dependency that enforces authentication:
-    - Reads the secure HttpOnly cookie `instasave_token` (or `Authorization: Bearer <token>` header).
+    - Reads the secure HttpOnly cookie `zengram_token` / `instasave_token` (or `Authorization: Bearer <token>` header).
     - If authentication is disabled or no admin is configured, allows access.
     - If enabled and unauthenticated, raises HTTP 401 Unauthorized.
     """
@@ -100,7 +106,7 @@ async def get_current_admin(request: Request, db: AsyncSession = Depends(get_db)
         return admin
 
     # 2. Extract token from HttpOnly cookie or Authorization header
-    token = request.cookies.get("instasave_token")
+    token = request.cookies.get("zengram_token") or request.cookies.get("instasave_token")
     if not token:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):

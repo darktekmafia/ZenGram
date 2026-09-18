@@ -11,7 +11,7 @@ from backend.app.models import MediaItem, DownloadJob
 from backend.app.schemas import MediaItemResponse, BulkDownloadRequest, DownloadJobResponse, PaginatedMediaResponse
 from backend.app.services.downloader import downloader
 
-logger = logging.getLogger("instasave.downloads")
+logger = logging.getLogger("zengram.downloads")
 
 router = APIRouter(prefix="/downloads", tags=["Downloads"])
 

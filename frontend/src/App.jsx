@@ -2414,7 +2414,7 @@ export default function App() {
                     </div>
                     <div className="settings-accordion-title-group">
                       <h3>Version, Software Updates & System Environment</h3>
-                      <p>InstaSave version, git commit history, operating environment, and live update checking</p>
+                      <p>ZenGram version, git commit history, operating environment, and live update checking</p>
                     </div>
                   </div>
 
@@ -2466,7 +2466,7 @@ export default function App() {
                         </tr>
                         <tr>
                           <td className="label">Local Port & Service</td>
-                          <td className="value"><code>instasave.service</code> • http://127.0.0.1:8484</td>
+                          <td className="value"><code>zengram.service</code> • http://127.0.0.1:8484</td>
                         </tr>
                         <tr>
                           <td className="label">Rate Limit Quota</td>
@@ -2593,7 +2593,7 @@ export default function App() {
                         <div style={{ fontSize: '0.82rem', color: 'var(--text-main)' }}>
                           <strong>HttpOnly Session Cookie Active</strong>
                           <div style={{ color: 'var(--text-muted)', fontSize: '0.76rem', marginTop: '1px' }}>
-                            Your session token is cryptographically signed and stored in a secure <code>HttpOnly</code> cookie, protecting InstaSave from XSS attacks and unauthorized direct LAN/reverse proxy bypass.
+                            Your session token is cryptographically signed and stored in a secure <code>HttpOnly</code> cookie, protecting ZenGram from XSS attacks and unauthorized direct LAN/reverse proxy bypass.
                           </div>
                         </div>
                       </div>

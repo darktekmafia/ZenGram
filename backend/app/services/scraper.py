@@ -5,7 +5,7 @@ import datetime
 import httpx
 from typing import List, Dict, Any, Optional
 
-logger = logging.getLogger("instasave.scraper")
+logger = logging.getLogger("zengram.scraper")
 
 def extract_timestamp_from_shortcode(shortcode: Optional[str]) -> Optional[datetime.datetime]:
     """Decode Instagram snowflake timestamp from shortcode or numeric media ID."""
