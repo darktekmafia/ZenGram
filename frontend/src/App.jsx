@@ -2201,6 +2201,64 @@ export default function App() {
 
                 {expandedSections.storage && (
                   <div className="settings-accordion-body">
+                    {/* System Resource Impact Guidance Box */}
+                    <div className="settings-resource-impact-box">
+                      <div className="resource-impact-header">
+                        <Cpu size={18} />
+                        <span>System Resource & Hardware Impact Notes</span>
+                      </div>
+                      <p className="resource-impact-desc">
+                        Background scraping and media archiving involve concurrent network streams, cryptographic hashing, SQLite transactions, and disk I/O writes. Configure these parameters to match your host/LXC hardware capacity to prevent system freezes:
+                      </p>
+
+                      <div className="resource-impact-grid">
+                        <div className="resource-impact-card">
+                          <div>
+                            <strong>Parallel Workers</strong>
+                            <span className="impact-badge high">High CPU / IO Impact</span>
+                          </div>
+                          <div style={{ marginTop: '6px', color: 'var(--text-muted)' }}>
+                            <strong>1 Worker:</strong> Safest for low-RAM or single-core LXC containers.<br />
+                            <strong>2 Workers (Default):</strong> Optimal balance of speed and stability for 2-core Proxmox LXCs & workstations.<br />
+                            <span style={{ color: '#f87171' }}><strong>3–4 Workers:</strong> Turbo speed, but generates heavy CPU and disk I/O load. Can freeze low-spec machines.</span>
+                          </div>
+                        </div>
+
+                        <div className="resource-impact-card">
+                          <div>
+                            <strong>Max Queue Limit</strong>
+                            <span className="impact-badge medium">RAM & SQLite Load</span>
+                          </div>
+                          <div style={{ marginTop: '6px', color: 'var(--text-muted)' }}>
+                            <strong>4 – 8 Jobs (Default):</strong> Keeps background memory footprint low (~150 MB – 200 MB RAM).<br />
+                            <span style={{ color: '#fbbf24' }}><strong>12+ Jobs:</strong> Holding many queued profile scraping tasks increases active memory and database lock overhead.</span>
+                          </div>
+                        </div>
+
+                        <div className="resource-impact-card">
+                          <div>
+                            <strong>Rate Limit Delay</strong>
+                            <span className="impact-badge low">Anti-Ban Protection</span>
+                          </div>
+                          <div style={{ marginTop: '6px', color: 'var(--text-muted)' }}>
+                            <strong>2.5s – 4.0s (Default: 3.0s):</strong> Prevents Instagram HTTP 429 rate-limiting bans and eliminates CPU-spinning polling loops.<br />
+                            <span style={{ color: '#f87171' }}>Delays below 1.5s risk immediate temporary session blocks.</span>
+                          </div>
+                        </div>
+
+                        <div className="resource-impact-card">
+                          <div>
+                            <strong>Batch Scraping Depth</strong>
+                            <span className="impact-badge low">Initial Sync Memory</span>
+                          </div>
+                          <div style={{ marginTop: '6px', color: 'var(--text-muted)' }}>
+                            <strong>Uncapped:</strong> Retrieves entire post history. Large accounts (5k+ posts) momentarily buffer more metadata before saving.<br />
+                            <strong>100–200 Posts:</strong> Best for rapid, lightweight synchronization on resource-constrained containers.
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
                     <form onSubmit={handleSaveConfig}>
                       <div className="settings-form-group">
                         <label className="settings-label">Media Download Directory</label>
@@ -2245,7 +2303,13 @@ export default function App() {
                             onChange={(e) => setRateLimitDelayInput(e.target.value)}
                             style={{ margin: 0 }}
                           />
-                          <p className="settings-description">Cooldown between media requests.</p>
+                          <p className="settings-description">
+                            {parseFloat(rateLimitDelayInput) < 2.0 ? (
+                              <span style={{ color: '#f87171' }}>⚠️ Cooldown &lt; 2.0s risks Instagram rate limit bans.</span>
+                            ) : (
+                              'Cooldown between media requests.'
+                            )}
+                          </p>
                         </div>
 
                         <div className="settings-form-group">
@@ -2276,23 +2340,41 @@ export default function App() {
                             onChange={(e) => setMaxQueueLimitInput(e.target.value)}
                             style={{ margin: 0 }}
                           />
-                          <p className="settings-description">Maximum queued & active batch jobs.</p>
+                          <p className="settings-description">
+                            {parseInt(maxQueueLimitInput) > 12 ? (
+                              <span style={{ color: '#fbbf24' }}>⚠️ High queues increase memory load.</span>
+                            ) : (
+                              'Maximum queued & active batch jobs.'
+                            )}
+                          </p>
                         </div>
 
                         <div className="settings-form-group">
                           <label className="settings-label">Parallel Download Workers</label>
                           <select
                             className="select-dropdown"
-                            style={{ width: '100%', height: '42px' }}
+                            style={{
+                              width: '100%',
+                              height: '42px',
+                              borderColor: maxWorkersInput >= 3 ? '#ef4444' : undefined
+                            }}
                             value={maxWorkersInput}
                             onChange={(e) => setMaxWorkersInput(parseInt(e.target.value))}
                           >
                             <option value="1">1 Worker (Safest / Low CPU)</option>
                             <option value="2">2 Workers (Recommended / Fast)</option>
-                            <option value="3">3 Workers (High Speed)</option>
-                            <option value="4">4 Workers (Turbo)</option>
+                            <option value="3">3 Workers (High Speed - High CPU)</option>
+                            <option value="4">4 Workers (Turbo - High CPU & I/O)</option>
                           </select>
-                          <p className="settings-description">Concurrent file downloads per batch.</p>
+                          <p className="settings-description">
+                            {maxWorkersInput === 1 ? (
+                              <span style={{ color: '#34d399' }}>🟢 Lowest CPU/RAM. Ideal for 1-core LXCs.</span>
+                            ) : maxWorkersInput === 2 ? (
+                              <span style={{ color: '#60a5fa' }}>⚡ Optimal balance for 2-core LXCs.</span>
+                            ) : (
+                              <span style={{ color: '#f87171', fontWeight: 600 }}>⚠️ High CPU & I/O. May freeze low-spec systems.</span>
+                            )}
+                          </p>
                         </div>
                       </div>
 
