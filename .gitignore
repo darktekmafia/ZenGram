@@ -112,6 +112,7 @@ UI_Example_Only.jpeg
 
 # Local Planning & Internal Implementation Notes
 FUTURE_IMPLEMENTATIONS.md
+FINAL_SECURITY_HARDENING_AND_RELEASE_VALIDATION.txt
 *.local.md
 ROADMAP.local.md
 

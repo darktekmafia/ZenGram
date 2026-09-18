@@ -102,7 +102,16 @@ def _is_safe_image_proxy_url(url_str: str) -> bool:
         parsed = urllib.parse.urlparse(url_str)
         if parsed.scheme not in ("http", "https"):
             return False
-        hostname = (parsed.hostname or "").lower()
+        
+        # Reject userinfo (e.g. http://user:pass@host)
+        if parsed.username or parsed.password:
+            return False
+
+        # Reject non-standard ports
+        if parsed.port and parsed.port not in (80, 443):
+            return False
+
+        hostname = (parsed.hostname or "").lower().strip()
         if not hostname:
             return False
 
@@ -190,8 +199,8 @@ async def proxy_image(
     if not _is_safe_image_proxy_url(target_url):
         raise HTTPException(status_code=400, detail="Target host is not permitted by image proxy policy.")
 
-    # Local disk cache lookup (keyed by URL without query parameters)
-    cache_key = hashlib.sha256(target_url.split('?')[0].encode('utf-8')).hexdigest()
+    # Local disk cache lookup (cryptographic hash of full URL including query parameters)
+    cache_key = hashlib.sha256(target_url.encode('utf-8')).hexdigest()
     cache_dir = settings.BASE_DIR / "storage" / "cache" / "images"
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_file = cache_dir / f"{cache_key}.jpg"

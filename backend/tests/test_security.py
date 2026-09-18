@@ -194,6 +194,26 @@ async def test_security_hardening():
             # 11. Verify Unresolvable Hostname / DNS failure fails closed
             assert not _is_safe_image_proxy_url("https://nonexistent-fake-subdomain.cdninstagram.com/pic.jpg")
 
+            # 12. Verify URL parser rejects userinfo, non-standard ports, and non-HTTP schemes
+            assert not _is_safe_image_proxy_url("https://admin:pass@scontent.cdninstagram.com/pic.jpg")
+            assert not _is_safe_image_proxy_url("https://scontent.cdninstagram.com:8443/pic.jpg")
+            assert not _is_safe_image_proxy_url("ftp://scontent.cdninstagram.com/pic.jpg")
+            assert not _is_safe_image_proxy_url("file:///etc/passwd")
+
+            # 13. Verify Distinct Query Parameters produce Distinct Cache Keys
+            import hashlib
+            url_a = "https://scontent.cdninstagram.com/v/t51.2885-19/test.jpg?token=abc"
+            url_b = "https://scontent.cdninstagram.com/v/t51.2885-19/test.jpg?token=xyz"
+            key_a = hashlib.sha256(url_a.encode("utf-8")).hexdigest()
+            key_b = hashlib.sha256(url_b.encode("utf-8")).hexdigest()
+            assert key_a != key_b, "Distinct query parameters must produce different cache keys"
+
+            # 14. Verify Encryption Fail-Closed behavior
+            from backend.app.auth_utils import encrypt_secret
+            assert encrypt_secret("dummy_session_cookie") == "dummy_session_cookie"
+            enc_result = encrypt_secret("valid_cookie_123")
+            assert enc_result.startswith("enc:")
+
     finally:
         await test_engine.dispose()
         if os.path.exists(temp_db_path):

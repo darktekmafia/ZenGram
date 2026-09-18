@@ -64,9 +64,9 @@ async def init_db():
         except Exception:
             pass
 
-        # Migrate any legacy plaintext session cookies to AES-256 encrypted ciphertext
+        # Migrate any legacy plaintext session cookies to AES-256 encrypted ciphertext (Fail-Closed & Atomic)
+        from backend.app.auth_utils import encrypt_secret
         try:
-            from backend.app.auth_utils import encrypt_secret
             res = await conn.execute(text("SELECT id, session_cookie FROM user_sessions WHERE session_cookie IS NOT NULL"))
             rows = res.fetchall()
             for row_id, cookie_val in rows:
@@ -76,8 +76,10 @@ async def init_db():
                         text("UPDATE user_sessions SET session_cookie = :enc WHERE id = :id"),
                         {"enc": enc_val, "id": row_id}
                     )
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger("zengram.database").critical(f"FATAL: Database credential migration failed: {e}")
+            raise RuntimeError(f"Database initialization aborted: unable to safely migrate credentials: {e}") from e
 
     # Restrict SQLite database and WAL files to owner-only read/write (0600)
     import os
