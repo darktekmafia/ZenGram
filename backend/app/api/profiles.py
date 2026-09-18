@@ -55,8 +55,6 @@ async def sync_followed_accounts(db: AsyncSession = Depends(get_db)):
                 is_unfollowed_track=False
             )
             db.add(new_p)
-            await db.commit()
-            await db.refresh(new_p)
             imported_profiles.append(new_p)
         else:
             existing.is_unfollowed_track = False
@@ -64,9 +62,14 @@ async def sync_followed_accounts(db: AsyncSession = Depends(get_db)):
                 existing.full_name = item.get("full_name")
             if item.get("profile_pic_url"):
                 existing.profile_pic_url = item.get("profile_pic_url")
-            await db.commit()
-            await db.refresh(existing)
             imported_profiles.append(existing)
+
+    await db.commit()
+    for p in imported_profiles:
+        try:
+            await db.refresh(p)
+        except Exception:
+            pass
 
     return imported_profiles
 

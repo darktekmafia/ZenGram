@@ -84,6 +84,57 @@ class RateLimitTracker:
 
 rate_tracker = RateLimitTracker()
 
+PLAYWRIGHT_CHROMIUM_ARGS = [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--disable-extensions",
+    "--disable-default-apps",
+    "--mute-audio",
+    "--no-first-run",
+    "--disable-background-networking"
+]
+
+def parse_instagram_cookies(cookie_str: Optional[str]) -> Dict[str, str]:
+    """Parse raw cookie string, header, or sessionid token into key-value pairs."""
+    if not cookie_str or cookie_str == "dummy_session_cookie":
+        return {}
+    clean = cookie_str.strip().strip('"').strip("'")
+    cookies = {}
+    if "=" in clean:
+        parts = clean.split(";")
+        for p in parts:
+            p = p.strip()
+            if "=" in p:
+                k, v = p.split("=", 1)
+                cookies[k.strip()] = v.strip().strip('"')
+    else:
+        cookies["sessionid"] = clean
+
+    if "sessionid" in cookies and cookies["sessionid"].startswith("sessionid="):
+        cookies["sessionid"] = cookies["sessionid"].replace("sessionid=", "").strip()
+
+    return cookies
+
+def extract_user_id_from_cookies(cookies_dict: Dict[str, str], raw_cookie_str: Optional[str] = None) -> Optional[str]:
+    """Extract numeric Instagram user ID from parsed cookies or raw string."""
+    if "ds_user_id" in cookies_dict and cookies_dict["ds_user_id"].isdigit():
+        return cookies_dict["ds_user_id"]
+    sessionid = cookies_dict.get("sessionid", "")
+    if sessionid:
+        import urllib.parse
+        decoded = urllib.parse.unquote(sessionid)
+        candidate = decoded.split(":")[0].split("%3A")[0].strip()
+        if candidate.isdigit() and len(candidate) >= 4:
+            return candidate
+    if raw_cookie_str:
+        import re
+        match = re.search(r'(\d{5,})', raw_cookie_str)
+        if match:
+            return match.group(1)
+    return None
+
 class InstagramScraperEngine:
     def __init__(self, session_cookie: Optional[str] = None):
         self.session_cookie = session_cookie
@@ -95,7 +146,11 @@ class InstagramScraperEngine:
             "X-Requested-With": "XMLHttpRequest",
         }
         if session_cookie:
-            self.headers["Cookie"] = f"sessionid={session_cookie};"
+            cookies_dict = parse_instagram_cookies(session_cookie)
+            cookie_parts = [f"{k}={v}" for k, v in cookies_dict.items()]
+            if "sessionid" in cookies_dict and not any(k == "sessionid" for k in cookies_dict):
+                cookie_parts.append(f"sessionid={cookies_dict['sessionid']}")
+            self.headers["Cookie"] = "; ".join(cookie_parts) if cookie_parts else f"sessionid={session_cookie};"
 
     async def _async_delay(self, min_sec: float = 1.5, max_sec: float = 3.5):
         delay = random.uniform(min_sec, max_sec)
@@ -107,29 +162,28 @@ class InstagramScraperEngine:
             async with async_playwright() as p:
                 browser = await p.chromium.launch(
                     headless=True,
-                    args=[
-                        "--no-sandbox",
-                        "--disable-setuid-sandbox",
-                        "--disable-dev-shm-usage",
-                        "--disable-gpu",
-                        "--disable-extensions",
-                        "--disable-default-apps",
-                        "--mute-audio",
-                        "--no-first-run",
-                        "--disable-background-networking"
-                    ]
+                    args=PLAYWRIGHT_CHROMIUM_ARGS
                 )
                 context = await browser.new_context(
                     viewport={"width": 1280, "height": 800},
                     device_scale_factor=1
                 )
                 if self.session_cookie and self.session_cookie != "dummy_session_cookie":
-                    await context.add_cookies([{
-                        'name': 'sessionid',
-                        'value': self.session_cookie,
-                        'domain': '.instagram.com',
-                        'path': '/'
-                    }])
+                    cookies_dict = parse_instagram_cookies(self.session_cookie)
+                    for k, v in cookies_dict.items():
+                        await context.add_cookies([{
+                            'name': k,
+                            'value': v,
+                            'domain': '.instagram.com',
+                            'path': '/'
+                        }])
+                    if 'sessionid' not in cookies_dict:
+                        await context.add_cookies([{
+                            'name': 'sessionid',
+                            'value': self.session_cookie,
+                            'domain': '.instagram.com',
+                            'path': '/'
+                        }])
                 
                 page = await context.new_page()
 
@@ -497,15 +551,30 @@ class InstagramScraperEngine:
         try:
             from playwright.async_api import async_playwright
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                context = await browser.new_context()
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=PLAYWRIGHT_CHROMIUM_ARGS
+                )
+                context = await browser.new_context(
+                    viewport={"width": 1280, "height": 800},
+                    user_agent="Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
+                )
                 if self.session_cookie and self.session_cookie != "dummy_session_cookie":
-                    await context.add_cookies([{
-                        'name': 'sessionid',
-                        'value': self.session_cookie,
-                        'domain': '.instagram.com',
-                        'path': '/'
-                    }])
+                    cookies_dict = parse_instagram_cookies(self.session_cookie)
+                    for k, v in cookies_dict.items():
+                        await context.add_cookies([{
+                            'name': k,
+                            'value': v,
+                            'domain': '.instagram.com',
+                            'path': '/'
+                        }])
+                    if 'sessionid' not in cookies_dict:
+                        await context.add_cookies([{
+                            'name': 'sessionid',
+                            'value': self.session_cookie,
+                            'domain': '.instagram.com',
+                            'path': '/'
+                        }])
                 page = await context.new_page()
                 try:
                     await page.goto(f"https://www.instagram.com/stories/{username}/", wait_until="domcontentloaded", timeout=10000)
@@ -565,50 +634,126 @@ class InstagramScraperEngine:
         rate_tracker.record_request()
         await self._async_delay()
 
-        if not self.session_cookie or self.session_cookie == "dummy_session_cookie":
+        cookies_dict = parse_instagram_cookies(self.session_cookie)
+        if not cookies_dict and not self.session_cookie:
             return []
 
-        followed = []
-        try:
-            # Extract numeric user_id from sessionid cookie
-            raw_id = self.session_cookie.split("%3A")[0].split(":")[0]
-            if not raw_id.isdigit():
-                return []
+        user_id = extract_user_id_from_cookies(cookies_dict, self.session_cookie)
+        
+        cookie_header_parts = [f"{k}={v}" for k, v in cookies_dict.items()]
+        if "sessionid" in cookies_dict and not any(k == "sessionid" for k in cookies_dict):
+            cookie_header_parts.append(f"sessionid={cookies_dict['sessionid']}")
+        cookie_header = "; ".join(cookie_header_parts) if cookie_header_parts else f"sessionid={self.session_cookie};"
+        if "sessionid=" not in cookie_header and self.session_cookie:
+            cookie_header = f"sessionid={self.session_cookie}; {cookie_header}"
 
+        followed = []
+
+        # 1. Try fast direct HTTP API request with httpx first
+        if user_id:
+            try:
+                url = f"https://www.instagram.com/api/v1/friendships/{user_id}/following/?count=200"
+                async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                    resp = await client.get(
+                        url,
+                        headers={
+                            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+                            "Accept": "*/*",
+                            "Accept-Language": "en-US,en;q=0.5",
+                            "X-IG-App-ID": "936619743392459",
+                            "X-Requested-With": "XMLHttpRequest",
+                            "Cookie": cookie_header,
+                            "Referer": "https://www.instagram.com/",
+                        }
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        users = data.get("users", [])
+                        for u in users:
+                            handle = u.get("username", "").strip().rstrip("/").lstrip("@")
+                            if handle:
+                                followed.append({
+                                    "username": handle,
+                                    "ig_user_id": str(u.get("pk") or u.get("id")),
+                                    "full_name": u.get("full_name") or handle,
+                                    "profile_pic_url": u.get("profile_pic_url"),
+                                    "is_unfollowed_track": False
+                                })
+                        if followed:
+                            logger.info(f"Successfully fetched {len(followed)} followed accounts via direct API")
+                            return followed
+            except Exception as e:
+                logger.warning(f"Direct httpx following API request failed, falling back to Playwright: {e}")
+
+        # 2. Fallback to Playwright headless browser (with sandbox bypass args)
+        try:
             from playwright.async_api import async_playwright
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                context = await browser.new_context()
-                await context.add_cookies([{
-                    'name': 'sessionid',
-                    'value': self.session_cookie,
-                    'domain': '.instagram.com',
-                    'path': '/'
-                }])
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=PLAYWRIGHT_CHROMIUM_ARGS
+                )
+                context = await browser.new_context(
+                    viewport={"width": 1280, "height": 800},
+                    user_agent="Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
+                )
+                
+                playwright_cookies = []
+                for k, v in cookies_dict.items():
+                    playwright_cookies.append({
+                        'name': k,
+                        'value': v,
+                        'domain': '.instagram.com',
+                        'path': '/'
+                    })
+                if not any(c['name'] == 'sessionid' for c in playwright_cookies) and self.session_cookie:
+                    playwright_cookies.append({
+                        'name': 'sessionid',
+                        'value': self.session_cookie.strip(),
+                        'domain': '.instagram.com',
+                        'path': '/'
+                    })
+                await context.add_cookies(playwright_cookies)
+                
                 page = await context.new_page()
 
-                # Fetch followed accounts up to 200
-                url = f"https://www.instagram.com/api/v1/friendships/{raw_id}/following/?count=200"
-                response = await page.request.get(url, headers={
-                    'X-IG-App-ID': '936619743392459',
-                    'X-Requested-With': 'XMLHttpRequest',
-                })
-                if response.status == 200:
-                    data = await response.json()
-                    users = data.get("users", [])
-                    for u in users:
-                        handle = u.get("username", "").strip().rstrip("/").lstrip("@")
-                        if handle:
-                            followed.append({
-                                "username": handle,
-                                "ig_user_id": str(u.get("pk") or u.get("id")),
-                                "full_name": u.get("full_name") or handle,
-                                "profile_pic_url": u.get("profile_pic_url"),
-                                "is_unfollowed_track": False
-                            })
+                # If user_id wasn't known, navigate to Instagram home to resolve it
+                if not user_id:
+                    try:
+                        await page.goto("https://www.instagram.com/", wait_until="domcontentloaded", timeout=15000)
+                        await page.wait_for_timeout(1500)
+                        ctx_cookies = await context.cookies()
+                        for c in ctx_cookies:
+                            if c['name'] == 'ds_user_id' and c['value'].isdigit():
+                                user_id = c['value']
+                                break
+                    except Exception as e:
+                        logger.warning(f"Error navigating to home for user ID discovery: {e}")
+
+                if user_id:
+                    url = f"https://www.instagram.com/api/v1/friendships/{user_id}/following/?count=200"
+                    response = await page.request.get(url, headers={
+                        'X-IG-App-ID': '936619743392459',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Referer': 'https://www.instagram.com/'
+                    })
+                    if response.status == 200:
+                        data = await response.json()
+                        users = data.get("users", [])
+                        for u in users:
+                            handle = u.get("username", "").strip().rstrip("/").lstrip("@")
+                            if handle:
+                                followed.append({
+                                    "username": handle,
+                                    "ig_user_id": str(u.get("pk") or u.get("id")),
+                                    "full_name": u.get("full_name") or handle,
+                                    "profile_pic_url": u.get("profile_pic_url"),
+                                    "is_unfollowed_track": False
+                                })
+
                 await browser.close()
         except Exception as e:
-            logger.error(f"Error fetching followed accounts: {e}")
+            logger.error(f"Playwright error fetching followed accounts: {e}")
 
         return followed
 

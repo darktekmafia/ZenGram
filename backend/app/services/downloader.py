@@ -97,17 +97,33 @@ class MediaDownloader:
         seen_urls = set()
         try:
             from playwright.async_api import async_playwright
+            from backend.app.services.scraper import PLAYWRIGHT_CHROMIUM_ARGS, parse_instagram_cookies
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=PLAYWRIGHT_CHROMIUM_ARGS
+                )
                 try:
-                    context = await browser.new_context()
+                    context = await browser.new_context(
+                        viewport={"width": 1280, "height": 800},
+                        user_agent="Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
+                    )
                     if session_cookie and session_cookie != "dummy_session_cookie":
-                        await context.add_cookies([{
-                            'name': 'sessionid',
-                            'value': session_cookie,
-                            'domain': '.instagram.com',
-                            'path': '/'
-                        }])
+                        cookies_dict = parse_instagram_cookies(session_cookie)
+                        for k, v in cookies_dict.items():
+                            await context.add_cookies([{
+                                'name': k,
+                                'value': v,
+                                'domain': '.instagram.com',
+                                'path': '/'
+                            }])
+                        if 'sessionid' not in cookies_dict:
+                            await context.add_cookies([{
+                                'name': 'sessionid',
+                                'value': session_cookie,
+                                'domain': '.instagram.com',
+                                'path': '/'
+                            }])
                     page = await context.new_page()
 
                     urls_to_try = []

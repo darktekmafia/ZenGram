@@ -239,10 +239,11 @@ async def get_current_session(db: AsyncSession = Depends(get_db)):
 
 @router.post("/session", response_model=UserSessionResponse)
 async def create_session(data: UserSessionCreate, db: AsyncSession = Depends(get_db)):
+    clean_cookie = data.session_cookie.strip().strip('"').strip("'")
     result = await db.execute(select(UserSession).where(UserSession.username == data.username))
     existing = result.scalars().first()
     if existing:
-        existing.session_cookie = data.session_cookie
+        existing.session_cookie = clean_cookie
         existing.is_active = True
         existing.last_validated_at = datetime.datetime.utcnow()
         await db.commit()
@@ -251,7 +252,7 @@ async def create_session(data: UserSessionCreate, db: AsyncSession = Depends(get
 
     new_session = UserSession(
         username=data.username,
-        session_cookie=data.session_cookie,
+        session_cookie=clean_cookie,
         is_active=True,
         last_validated_at=datetime.datetime.utcnow()
     )
