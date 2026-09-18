@@ -146,6 +146,11 @@ detect_environment() {
     fi
 }
 
+# Clear screen in interactive TTY mode for a clean presentation
+if [ -t 1 ] && [ "$NON_INTERACTIVE" -eq 0 ] && [ "$CHECK_UPDATE_ONLY" -eq 0 ]; then
+    clear 2>/dev/null || printf "\033c" 2>/dev/null || true
+fi
+
 print_banner
 detect_environment
 
@@ -171,17 +176,17 @@ if [ "$CHECK_UPDATE_ONLY" -eq 1 ]; then
 fi
 
 # Print Environment Summary Card
-printf "${CLR_CYAN}╭─────────────────────────────────────────────────────────────────────────────╮${CLR_RESET}\n"
-printf "${CLR_CYAN}│${CLR_RESET}  ${CLR_BOLD}Operating System:${CLR_RESET}   %-54s ${CLR_CYAN}│${CLR_RESET}\n" "$DISTRO_PRETTY"
-printf "${CLR_CYAN}│${CLR_RESET}  ${CLR_BOLD}Environment:${CLR_RESET}        %-54s ${CLR_CYAN}│${CLR_RESET}\n" "$CONTAINER_TYPE ($RUNNER_USER)"
-printf "${CLR_CYAN}│${CLR_RESET}  ${CLR_BOLD}Hardware Specs:${CLR_RESET}     %-54s ${CLR_CYAN}│${CLR_RESET}\n" "$ARCH • $CORES CPU Cores • $RAM_TOTAL RAM"
-printf "${CLR_CYAN}│${CLR_RESET}  ${CLR_BOLD}Target Endpoint:${CLR_RESET}    %-54s ${CLR_CYAN}│${CLR_RESET}\n" "http://$APP_HOST:$APP_PORT"
+printf "${CLR_CYAN}╭── System Discovery & Environment ───────────────────────────────────────────${CLR_RESET}\n"
+printf "${CLR_CYAN}│${CLR_RESET}  ${CLR_BOLD}%-18s${CLR_RESET} %s\n" "Operating System:" "$DISTRO_PRETTY"
+printf "${CLR_CYAN}│${CLR_RESET}  ${CLR_BOLD}%-18s${CLR_RESET} %s (%s)\n" "Environment:" "$CONTAINER_TYPE" "$RUNNER_USER"
+printf "${CLR_CYAN}│${CLR_RESET}  ${CLR_BOLD}%-18s${CLR_RESET} %s | %s CPU Cores | %s RAM\n" "Hardware Specs:" "$ARCH" "$CORES" "$RAM_TOTAL"
+printf "${CLR_CYAN}│${CLR_RESET}  ${CLR_BOLD}%-18s${CLR_RESET} http://%s:%s\n" "Target Endpoint:" "$APP_HOST" "$APP_PORT"
 if [ "$IS_UPDATE" -eq 1 ]; then
-    printf "${CLR_CYAN}│${CLR_RESET}  ${CLR_BOLD}Execution Mode:${CLR_RESET}     %-54s ${CLR_CYAN}│${CLR_RESET}\n" "⚡ Software Update & Asset Rebuild"
+    printf "${CLR_CYAN}│${CLR_RESET}  ${CLR_BOLD}%-18s${CLR_RESET} Software Update & Asset Rebuild\n" "Execution Mode:"
 else
-    printf "${CLR_CYAN}│${CLR_RESET}  ${CLR_BOLD}Execution Mode:${CLR_RESET}     %-54s ${CLR_CYAN}│${CLR_RESET}\n" "✨ Fresh Installation & Service Deployment"
+    printf "${CLR_CYAN}│${CLR_RESET}  ${CLR_BOLD}%-18s${CLR_RESET} Fresh Installation & Service Deployment\n" "Execution Mode:"
 fi
-printf "${CLR_CYAN}╰─────────────────────────────────────────────────────────────────────────────╯${CLR_RESET}\n\n"
+printf "${CLR_CYAN}╰─────────────────────────────────────────────────────────────────────────────${CLR_RESET}\n\n"
 
 PREV_COMMIT=""
 if [ -d ".git" ]; then
@@ -386,7 +391,20 @@ mkdir -p "$HOME/.config/zengram"
 chmod 700 "$HOME/.config/zengram" 2>/dev/null || true
 chmod 600 "$HOME/.config/zengram"/jwt_secret.key 2>/dev/null || true
 
-SERVICE_CONTENT="[Unit]
+# Stop any legacy service names
+if [ "$IS_ROOT" -eq 1 ]; then
+    systemctl stop instasave.service 2>/dev/null || true
+    systemctl disable instasave.service 2>/dev/null || true
+else
+    systemctl --user stop instasave.service 2>/dev/null || true
+    systemctl --user disable instasave.service 2>/dev/null || true
+fi
+
+if [ "$IS_ROOT" -eq 1 ]; then
+    # Running as Root (e.g. Proxmox LXC Container or Dedicated Server)
+    SYSTEMD_PATH="/etc/systemd/system/zengram.service"
+    cat <<EOF > "$SYSTEMD_PATH"
+[Unit]
 Description=ZenGram Local Web Service
 After=network.target
 
@@ -400,23 +418,10 @@ RestartSec=3
 Environment=PYTHONUNBUFFERED=1
 
 [Install]
-WantedBy=multi-user.target default.target"
-
-# Stop any legacy service names
-if [ "$IS_ROOT" -eq 1 ]; then
-    systemctl stop instasave.service 2>/dev/null || true
-    systemctl disable instasave.service 2>/dev/null || true
-else
-    systemctl --user stop instasave.service 2>/dev/null || true
-    systemctl --user disable instasave.service 2>/dev/null || true
-fi
-
-if [ "$IS_ROOT" -eq 1 ]; then
-    # Running as Root (e.g. Proxmox LXC Container or Dedicated Server)
-    SYSTEMD_PATH="/etc/systemd/system/zengram.service"
-    echo "$SERVICE_CONTENT" > "$SYSTEMD_PATH"
+WantedBy=multi-user.target
+EOF
     systemctl daemon-reload
-    systemctl enable --now zengram.service
+    systemctl enable --now zengram.service 2>/dev/null || true
     if [ "$SKIP_RESTART" -eq 0 ]; then
         systemctl restart zengram.service
         printf "${CLR_GREEN}[✓] Systemd root service 'zengram.service' enabled and active.${CLR_RESET}\n"
@@ -427,9 +432,25 @@ else
     # Running as Standard User (e.g. Fedora Workstation)
     USER_SYSTEMD_DIR="$HOME/.config/systemd/user"
     mkdir -p "$USER_SYSTEMD_DIR"
-    echo "$SERVICE_CONTENT" > "$USER_SYSTEMD_DIR/zengram.service"
+    cat <<EOF > "$USER_SYSTEMD_DIR/zengram.service"
+[Unit]
+Description=ZenGram Local Web Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=$PROJECT_DIR
+UMask=0077
+ExecStart=$PROJECT_DIR/.venv/bin/uvicorn backend.app.main:app --host $APP_HOST --port $APP_PORT
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
+EOF
     systemctl --user daemon-reload
-    systemctl --user enable --now zengram.service
+    systemctl --user enable --now zengram.service 2>/dev/null || true
     if [ "$SKIP_RESTART" -eq 0 ]; then
         systemctl --user restart zengram.service
         printf "${CLR_GREEN}[✓] Systemd user service 'zengram.service' enabled and active.${CLR_RESET}\n"
@@ -456,26 +477,23 @@ fi
 # Completion Card & Quick Tips
 # ==============================================================================
 printf "\n${CLR_GREEN}${CLR_BOLD}"
-printf "╭─────────────────────────────────────────────────────────────────────────────╮\n"
-printf "│                      ✨ ZenGram Setup Successfully Complete!                │\n"
-printf "├─────────────────────────────────────────────────────────────────────────────┤\n"
-printf "${CLR_RESET}"
-printf "  ${CLR_BOLD}Local Web UI:${CLR_RESET}        ${CLR_CYAN}http://localhost:%s${CLR_RESET}\n" "$APP_PORT"
+printf "╭── ✨ ZenGram Setup Successfully Complete! ───────────────────────────────────${CLR_RESET}\n"
+printf "${CLR_GREEN}│${CLR_RESET}  ${CLR_BOLD}%-20s${CLR_RESET} ${CLR_CYAN}http://localhost:%s${CLR_RESET}\n" "Local Web UI:" "$APP_PORT"
 if [ "$LAN_IP" != "127.0.0.1" ]; then
-printf "  ${CLR_BOLD}Network Access:${CLR_RESET}      ${CLR_CYAN}http://%s:%s${CLR_RESET}\n" "$LAN_IP" "$APP_PORT"
+printf "${CLR_GREEN}│${CLR_RESET}  ${CLR_BOLD}%-20s${CLR_RESET} ${CLR_CYAN}http://%s:%s${CLR_RESET}\n" "Network Access:" "$LAN_IP" "$APP_PORT"
 fi
-printf "  ${CLR_BOLD}Active Service:${CLR_RESET}      zengram.service (Running in background)\n"
-printf "  ${CLR_BOLD}Security & Key:${CLR_RESET}      AES-256 Fernet Encryption at Rest (Permissions 0600)\n\n"
-printf "  ${CLR_PURPLE}${CLR_BOLD}Useful Management Commands:${CLR_RESET}\n"
+printf "${CLR_GREEN}│${CLR_RESET}  ${CLR_BOLD}%-20s${CLR_RESET} zengram.service (Running in background)\n" "Active Service:"
+printf "${CLR_GREEN}│${CLR_RESET}  ${CLR_BOLD}%-20s${CLR_RESET} AES-256 Fernet Encryption at Rest (Permissions 0600)\n" "Security & Key:"
+printf "${CLR_GREEN}│${CLR_RESET}\n"
+printf "${CLR_GREEN}│${CLR_RESET}  ${CLR_PURPLE}${CLR_BOLD}Useful Management Commands:${CLR_RESET}\n"
 if [ "$IS_ROOT" -eq 1 ]; then
-printf "  • ${CLR_BOLD}Check Service Logs:${CLR_RESET}  journalctl -u zengram.service -f\n"
-printf "  • ${CLR_BOLD}Restart Service:${CLR_RESET}     systemctl restart zengram.service\n"
+printf "${CLR_GREEN}│${CLR_RESET}  • ${CLR_BOLD}Check Service Logs:${CLR_RESET}  journalctl -u zengram.service -f\n"
+printf "${CLR_GREEN}│${CLR_RESET}  • ${CLR_BOLD}Restart Service:${CLR_RESET}     systemctl restart zengram.service\n"
 else
-printf "  • ${CLR_BOLD}Check Service Logs:${CLR_RESET}  journalctl --user -u zengram.service -f\n"
-printf "  • ${CLR_BOLD}Restart Service:${CLR_RESET}     systemctl --user restart zengram.service\n"
+printf "${CLR_GREEN}│${CLR_RESET}  • ${CLR_BOLD}Check Service Logs:${CLR_RESET}  journalctl --user -u zengram.service -f\n"
+printf "${CLR_GREEN}│${CLR_RESET}  • ${CLR_BOLD}Restart Service:${CLR_RESET}     systemctl --user restart zengram.service\n"
 fi
-printf "  • ${CLR_BOLD}Run Security Test:${CLR_RESET}   source .venv/bin/activate && python backend/tests/test_security.py\n"
-printf "  • ${CLR_BOLD}Update Project:${CLR_RESET}      ./install.sh --update\n"
+printf "${CLR_GREEN}│${CLR_RESET}  • ${CLR_BOLD}Run Security Test:${CLR_RESET}   source .venv/bin/activate && python backend/tests/test_security.py\n"
+printf "${CLR_GREEN}│${CLR_RESET}  • ${CLR_BOLD}Update Project:${CLR_RESET}      ./install.sh --update\n"
 printf "${CLR_GREEN}${CLR_BOLD}"
-printf "╰─────────────────────────────────────────────────────────────────────────────╯\n"
-printf "${CLR_RESET}\n"
+printf "╰─────────────────────────────────────────────────────────────────────────────${CLR_RESET}\n\n"
