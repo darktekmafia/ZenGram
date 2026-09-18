@@ -95,34 +95,38 @@ fi
 detect_and_install_deps() {
     echo "[1/6] Detecting Linux distribution and verifying system dependencies..."
     
+    IS_ROOT=0
+    if [ "$(id -u)" -eq 0 ]; then
+        IS_ROOT=1
+        SUDO_PREFIX=""
+    else
+        SUDO_PREFIX="sudo"
+    fi
+
     if command -v dnf &> /dev/null; then
         PM="dnf"
-        INSTALL_CMD="sudo dnf install -y"
     elif command -v apt-get &> /dev/null; then
         PM="apt"
-        if [ "$(id -u)" -eq 0 ]; then
-            INSTALL_CMD="apt-get update -qq && apt-get install -y"
-        else
-            INSTALL_CMD="sudo apt-get update -qq && sudo apt-get install -y"
-        fi
     elif command -v pacman &> /dev/null; then
         PM="pacman"
-        INSTALL_CMD="sudo pacman -S --noconfirm"
     elif command -v zypper &> /dev/null; then
         PM="zypper"
-        INSTALL_CMD="sudo zypper install -y"
     else
         echo "[!] Unknown package manager. Please ensure python3, python3-pip, nodejs, npm, ffmpeg, sqlite3 are installed."
         return 0
     fi
 
-    echo "[*] System package manager: $PM"
+    echo "[*] System package manager: $PM (Running as: $([ $IS_ROOT -eq 1 ] && echo 'root' || echo 'non-root user'))"
     
     # Required core system packages
     PKGS_TO_INSTALL=()
     if ! command -v python3 &> /dev/null; then PKGS_TO_INSTALL+=("python3"); fi
     if ! command -v pip3 &> /dev/null && ! python3 -m pip --version &> /dev/null; then 
-        if [ "$PM" = "apt" ]; then PKGS_TO_INSTALL+=("python3-pip" "python3-venv"); else PKGS_TO_INSTALL+=("python3-pip"); fi
+        if [ "$PM" = "apt" ]; then 
+            PKGS_TO_INSTALL+=("python3-pip" "python3-venv" "python3-dev"); 
+        else 
+            PKGS_TO_INSTALL+=("python3-pip"); 
+        fi
     fi
     if ! command -v node &> /dev/null; then PKGS_TO_INSTALL+=("nodejs"); fi
     if ! command -v npm &> /dev/null; then PKGS_TO_INSTALL+=("npm"); fi
@@ -132,7 +136,17 @@ detect_and_install_deps() {
 
     if [ ${#PKGS_TO_INSTALL[@]} -gt 0 ]; then
         echo "[*] Installing missing system packages: ${PKGS_TO_INSTALL[*]}"
-        $INSTALL_CMD "${PKGS_TO_INSTALL[@]}"
+        if [ "$PM" = "apt" ]; then
+            $SUDO_PREFIX apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive $SUDO_PREFIX apt-get install -y "${PKGS_TO_INSTALL[@]}"
+        elif [ "$PM" = "dnf" ]; then
+            $SUDO_PREFIX dnf install -y "${PKGS_TO_INSTALL[@]}"
+        elif [ "$PM" = "pacman" ]; then
+            $SUDO_PREFIX pacman -S --noconfirm "${PKGS_TO_INSTALL[@]}"
+        elif [ "$PM" = "zypper" ]; then
+            $SUDO_PREFIX zypper install -y "${PKGS_TO_INSTALL[@]}"
+        fi
+        echo "[✓] Missing system dependencies installed successfully."
     else
         echo "[✓] All essential system dependencies are present."
     fi
