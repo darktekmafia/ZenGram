@@ -211,7 +211,10 @@ async def update_security_settings(
 
 
 @router.get("/session", response_model=UserSessionResponse)
-async def get_current_session(db: AsyncSession = Depends(get_db)):
+async def get_current_session(
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
     result = await db.execute(select(UserSession).where(UserSession.is_active == True))
     session = result.scalars().first()
     if not session:
@@ -268,7 +271,10 @@ async def get_current_session(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/session/refresh-avatar", response_model=UserSessionResponse)
-async def refresh_session_avatar(db: AsyncSession = Depends(get_db)):
+async def refresh_session_avatar(
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
     result = await db.execute(select(UserSession).where(UserSession.is_active == True))
     session = result.scalars().first()
     if not session or not session.session_cookie or session.session_cookie == "dummy_session_cookie":
@@ -300,9 +306,24 @@ async def refresh_session_avatar(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/session", response_model=UserSessionResponse)
-async def create_session(data: UserSessionCreate, db: AsyncSession = Depends(get_db)):
-    clean_cookie = data.session_cookie.strip().strip('"').strip("'")
+async def create_session(
+    data: UserSessionCreate,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    raw_cookie = data.session_cookie or ""
+    clean_cookie = raw_cookie.strip().strip('"').strip("'")
     clean_username = data.username.strip().lstrip("@").strip() if data.username else ""
+
+    result = await db.execute(select(UserSession).order_by(UserSession.id.asc()))
+    existing = result.scalars().first()
+
+    # If cookie is omitted/masked and existing record exists, preserve current cookie
+    is_masked_or_empty = not clean_cookie or set(clean_cookie).issubset({'•', '*'})
+    if is_masked_or_empty and existing and existing.session_cookie:
+        clean_cookie = existing.session_cookie
+    elif not clean_cookie:
+        clean_cookie = "dummy_session_cookie"
 
     profile_pic = None
     has_real_cookie = clean_cookie and clean_cookie != "dummy_session_cookie"
@@ -329,10 +350,8 @@ async def create_session(data: UserSessionCreate, db: AsyncSession = Depends(get
             logger.warning(f"Error fetching profile avatar for {clean_username}: {e}")
 
     if not clean_username:
-        clean_username = "admin"
+        clean_username = existing.username if (existing and existing.username) else "admin"
 
-    result = await db.execute(select(UserSession).order_by(UserSession.id.asc()))
-    existing = result.scalars().first()
     if existing:
         existing.username = clean_username
         existing.session_cookie = clean_cookie
@@ -358,10 +377,25 @@ async def create_session(data: UserSessionCreate, db: AsyncSession = Depends(get
 
 
 @router.post("/session/test")
-async def test_instagram_session(data: UserSessionCreate):
-    """Test if a given Instagram session cookie is valid and active with Instagram."""
+async def test_instagram_session(
+    data: UserSessionCreate,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Test if a given Instagram session cookie (or currently saved session) is valid and active with Instagram."""
     from backend.app.services.scraper import parse_instagram_cookies, extract_user_id_from_cookies, InstagramScraperEngine
-    clean_cookie = data.session_cookie.strip().strip('"').strip("'")
+    raw_cookie = data.session_cookie or ""
+    clean_cookie = raw_cookie.strip().strip('"').strip("'")
+    is_masked_or_empty = not clean_cookie or set(clean_cookie).issubset({'•', '*'})
+
+    if is_masked_or_empty:
+        sess_res = await db.execute(select(UserSession).where(UserSession.is_active == True))
+        active_sess = sess_res.scalars().first()
+        if active_sess and active_sess.session_cookie and active_sess.session_cookie != "dummy_session_cookie":
+            clean_cookie = active_sess.session_cookie
+        else:
+            raise HTTPException(status_code=400, detail="No active Instagram session cookie configured to test.")
+
     cookies_dict = parse_instagram_cookies(clean_cookie)
     if not cookies_dict and not clean_cookie:
         raise HTTPException(status_code=400, detail="Empty session cookie provided.")
@@ -372,7 +406,7 @@ async def test_instagram_session(data: UserSessionCreate):
     if not user_id or len(session_val) < 15:
         return {
             "is_valid": False,
-            "message": "The pasted cookie string does not appear to contain a valid Instagram sessionid token. Please copy the value from DevTools or use 'Log In via Browser Window'."
+            "message": "The cookie string does not appear to contain a valid Instagram sessionid token. Please copy the value from DevTools or use 'Log In via Browser Window'."
         }
 
     detected_username = None
@@ -403,7 +437,6 @@ interactive_login_state: Dict[str, Any] = {
     "message": "",
     "error": None,
     "username": None,
-    "session_cookie": None,
     "updated_at": None,
     "task": None,
 }
@@ -418,7 +451,7 @@ def has_graphical_display() -> bool:
 
 
 @router.get("/display-info")
-async def get_display_info():
+async def get_display_info(current_admin: AdminUser = Depends(get_current_admin)):
     """Return whether the current server has a graphical display available for headful browser actions."""
     has_display = has_graphical_display()
     display_var = os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY") or "None"
@@ -438,7 +471,6 @@ async def _run_interactive_login_task():
     interactive_login_state["message"] = "Launching Chromium browser on your desktop..."
     interactive_login_state["error"] = None
     interactive_login_state["username"] = None
-    interactive_login_state["session_cookie"] = None
     interactive_login_state["updated_at"] = datetime.datetime.utcnow().isoformat()
 
     try:
@@ -572,7 +604,6 @@ async def _run_interactive_login_task():
 
                 interactive_login_state["status"] = "success"
                 interactive_login_state["username"] = detected_username
-                interactive_login_state["session_cookie"] = sessionid
                 interactive_login_state["message"] = f"Successfully authenticated as @{detected_username}! Session cookie saved."
                 interactive_login_state["updated_at"] = datetime.datetime.utcnow().isoformat()
                 await asyncio.sleep(2)
@@ -609,7 +640,10 @@ async def _run_interactive_login_task():
 
 
 @router.post("/interactive-login")
-async def start_interactive_login(background_tasks: BackgroundTasks):
+async def start_interactive_login(
+    background_tasks: BackgroundTasks,
+    current_admin: AdminUser = Depends(get_current_admin)
+):
     """Launch a visible Chromium window on the host for user login and automated cookie extraction."""
     global interactive_login_state
 
@@ -637,7 +671,7 @@ async def start_interactive_login(background_tasks: BackgroundTasks):
 
 
 @router.get("/interactive-login/status")
-async def get_interactive_login_status():
+async def get_interactive_login_status(current_admin: AdminUser = Depends(get_current_admin)):
     """Poll the status of the current interactive login session."""
     return {
         "is_running": interactive_login_state["is_running"],
@@ -650,7 +684,7 @@ async def get_interactive_login_status():
 
 
 @router.post("/interactive-login/cancel")
-async def cancel_interactive_login():
+async def cancel_interactive_login(current_admin: AdminUser = Depends(get_current_admin)):
     """Cancel the active interactive browser login session and close the browser."""
     global interactive_login_state, _active_browser, _playwright_instance
     if interactive_login_state["is_running"]:

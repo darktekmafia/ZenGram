@@ -237,7 +237,6 @@ export default function App() {
       if (res.ok) {
         const data = await res.json()
         setUserSession(data)
-        setSessionInput(data.session_cookie || '')
         if (data.username && data.username !== 'admin') {
           setSessionUsernameInput(data.username)
         }
@@ -718,13 +717,16 @@ export default function App() {
     setSessionTestResult(null)
     const targetUsername = sessionUsernameInput.trim().replace(/^@/, '') || (userSession?.username && userSession.username !== 'admin' ? userSession.username : '')
     try {
+      const payload = {
+        username: targetUsername
+      }
+      if (sessionInput && sessionInput.trim()) {
+        payload.session_cookie = sessionInput.trim()
+      }
       const res = await fetch('/api/v1/auth/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: targetUsername,
-          session_cookie: sessionInput
-        })
+        body: JSON.stringify(payload)
       })
       if (res.ok) {
         const savedData = await res.json()
@@ -732,18 +734,22 @@ export default function App() {
         if (savedData.username && savedData.username !== 'admin') {
           setSessionUsernameInput(savedData.username)
         }
+        setSessionInput('')
         await fetchUserSession()
         setSessionSaveStatus('success')
         
         // Auto-test with Instagram
         try {
+          const testPayload = {
+            username: savedData.username || targetUsername
+          }
+          if (sessionInput && sessionInput.trim()) {
+            testPayload.session_cookie = sessionInput.trim()
+          }
           const testRes = await fetch('/api/v1/auth/session/test', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              username: savedData.username || targetUsername,
-              session_cookie: sessionInput
-            })
+            body: JSON.stringify(testPayload)
           })
           if (testRes.ok) {
             const testData = await testRes.json()
@@ -773,13 +779,16 @@ export default function App() {
     setSessionTestResult(null)
     const targetUsername = sessionUsernameInput.trim().replace(/^@/, '') || (userSession?.username && userSession.username !== 'admin' ? userSession.username : '')
     try {
+      const payload = {
+        username: targetUsername
+      }
+      if (sessionInput && sessionInput.trim()) {
+        payload.session_cookie = sessionInput.trim()
+      }
       const res = await fetch('/api/v1/auth/session/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: targetUsername,
-          session_cookie: sessionInput
-        })
+        body: JSON.stringify(payload)
       })
       const data = await res.json()
       setSessionTestResult(data)
@@ -2352,7 +2361,7 @@ export default function App() {
                           <input
                             className="input-field"
                             type={showSessionKey ? 'text' : 'password'}
-                            placeholder="Paste your Instagram sessionid cookie string here..."
+                            placeholder={userSession?.has_session_cookie ? '•••••••••••••••• (Active Session Configured - Enter new to update)' : 'Paste your Instagram sessionid cookie string here...'}
                             value={sessionInput}
                             onChange={(e) => setSessionInput(e.target.value)}
                             style={{ paddingRight: '42px', margin: 0 }}
@@ -2379,7 +2388,7 @@ export default function App() {
                           type="button"
                           className="btn-secondary"
                           onClick={handleTestSession}
-                          disabled={!sessionInput || sessionTesting || sessionSaveStatus === 'saving'}
+                          disabled={(!sessionInput && !userSession?.has_session_cookie) || sessionTesting || sessionSaveStatus === 'saving'}
                           title="Verify if this session cookie is currently valid and active with Instagram."
                         >
                           <RefreshCw size={14} className={sessionTesting ? 'animate-spin' : ''} />

@@ -24,19 +24,35 @@ def _get_or_create_jwt_secret() -> str:
 
     try:
         if os.path.exists(SECRET_FILE_PATH):
+            try:
+                os.chmod(SECRET_FILE_PATH, 0o600)
+            except Exception:
+                pass
             with open(SECRET_FILE_PATH, "r", encoding="utf-8") as f:
                 secret = f.read().strip()
                 if secret:
                     return secret
         elif os.path.exists(OLD_SECRET_FILE_PATH):
+            try:
+                os.chmod(OLD_SECRET_FILE_PATH, 0o600)
+            except Exception:
+                pass
             with open(OLD_SECRET_FILE_PATH, "r", encoding="utf-8") as f:
                 secret = f.read().strip()
                 if secret:
                     return secret
-        
-        os.makedirs(os.path.dirname(SECRET_FILE_PATH), exist_ok=True)
+
+        secret_dir = os.path.dirname(SECRET_FILE_PATH)
+        os.makedirs(secret_dir, mode=0o700, exist_ok=True)
+        try:
+            os.chmod(secret_dir, 0o700)
+        except Exception:
+            pass
+
         new_secret = os.urandom(32).hex()
-        with open(SECRET_FILE_PATH, "w", encoding="utf-8") as f:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+        fd = os.open(SECRET_FILE_PATH, flags, 0o600)
+        with open(fd, "w", encoding="utf-8") as f:
             f.write(new_secret)
         return new_secret
     except Exception as e:
@@ -86,20 +102,25 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-async def get_current_admin(request: Request, db: AsyncSession = Depends(get_db)) -> Optional[AdminUser]:
+async def get_current_admin(request: Request, db: AsyncSession = Depends(get_db)) -> AdminUser:
     """
     FastAPI dependency that enforces authentication:
     - Reads the secure HttpOnly cookie `zengram_token` / `instasave_token` (or `Authorization: Bearer <token>` header).
-    - If authentication is disabled or no admin is configured, allows access.
+    - If no admin is configured, raises HTTP 401 Unauthorized (system setup required).
+    - If authentication requirement has been explicitly disabled by the user, allows access.
     - If enabled and unauthenticated, raises HTTP 401 Unauthorized.
     """
     # 1. Check if any admin user exists
     result = await db.execute(select(AdminUser))
     admin = result.scalars().first()
 
-    # If no admin account created yet, setup is required but open for setup endpoint
+    # If no admin account created yet, block protected endpoints until setup is completed
     if not admin:
-        return None
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="System setup required. Please configure master administrator password.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     # If auth requirement has been explicitly disabled by the user
     if not admin.auth_enabled:
@@ -128,7 +149,7 @@ async def get_current_admin(request: Request, db: AsyncSession = Depends(get_db)
         )
 
     username = payload.get("sub")
-    if admin.username != username:
+    if admin.username.lower() != username.lower():
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not recognized.",

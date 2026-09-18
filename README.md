@@ -1,11 +1,5 @@
 # ZenGram - Distraction-Free Instagram Media Archiver & Feed Viewer
 
-> [!CAUTION]
-> ### 🛑 CRITICAL SECURITY NOTICE — DO NOT INSTALL OR DEPLOY
-> **A security issue has been identified with this project.**
-> **Please DO NOT install, deploy, or run ZenGram until security hardening has been completed.**
-> The maintainers are actively addressing the issue. A hardened release and update will be provided once resolved.
-
 **ZenGram** is a self-hosted Instagram feed viewer and personal media archiver designed to put you back in control of your feed. Browse followed accounts chronologically, separate high-volume accounts from your daily feed, and preserve media locally—all without advertisements, suggested posts, or algorithmic recommendations.
 
 ![ZenGram](assets/zengram.svg)

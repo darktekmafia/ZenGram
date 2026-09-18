@@ -25,6 +25,16 @@ class UserSession(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
     last_validated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, nullable=True)
 
+    @property
+    def has_session_cookie(self) -> bool:
+        return bool(self.session_cookie and self.session_cookie != "dummy_session_cookie")
+
+    @property
+    def masked_cookie(self) -> Optional[str]:
+        if not self.has_session_cookie:
+            return None
+        return "••••••••••••"
+
 class WatchedProfile(Base):
     __tablename__ = "watched_profiles"
 

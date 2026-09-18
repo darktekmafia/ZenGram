@@ -64,6 +64,16 @@ async def init_db():
         except Exception:
             pass
 
+    # Restrict SQLite database and WAL files to owner-only read/write (0600)
+    import os
+    import glob
+    db_base = str(settings.BASE_DIR / "zengram.db")
+    for fpath in glob.glob(f"{db_base}*"):
+        try:
+            os.chmod(fpath, 0o600)
+        except Exception:
+            pass
+
 async def get_db():
     async with AsyncSessionLocal() as session:
         yield session

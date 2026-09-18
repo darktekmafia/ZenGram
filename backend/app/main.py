@@ -70,6 +70,7 @@ app.add_middleware(
 )
 
 from fastapi import Depends
+from backend.app.models import AdminUser
 from backend.app.auth_utils import get_current_admin
 
 # Mount API Routers
@@ -85,10 +86,48 @@ async def health_check():
     return {"status": "ok", "app": settings.PROJECT_NAME, "version": settings.VERSION}
 
 import httpx
-from fastapi import Response, Query, HTTPException
+ALLOWED_IMAGE_DOMAINS = (
+    "cdninstagram.com",
+    "fbcdn.net",
+    "instagram.com",
+    "threads.net",
+    "facebook.com"
+)
+
+def _is_safe_image_proxy_url(url_str: str) -> bool:
+    import urllib.parse
+    import ipaddress
+    try:
+        parsed = urllib.parse.urlparse(url_str)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        hostname = (parsed.hostname or "").lower()
+        if not hostname:
+            return False
+
+        # Block localhost and IP addresses
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                return False
+        except ValueError:
+            pass
+
+        if hostname in ("localhost", "127.0.0.1", "::1"):
+            return False
+
+        # Check whitelist against domain endings
+        return any(hostname == d or hostname.endswith("." + d) for d in ALLOWED_IMAGE_DOMAINS)
+    except Exception:
+        return False
 
 @app.get("/api/v1/proxy/image")
-async def proxy_image(request: Request, url: Optional[str] = Query(None), b64: Optional[str] = Query(None)):
+async def proxy_image(
+    request: Request,
+    url: Optional[str] = Query(None),
+    b64: Optional[str] = Query(None),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
     import base64
     import html
     import hashlib
@@ -128,6 +167,10 @@ async def proxy_image(request: Request, url: Optional[str] = Query(None), b64: O
         target_url = urllib.parse.unquote(target_url)
 
     target_url = html.unescape(target_url).replace("&amp;", "&").strip().strip('"').strip("'")
+
+    # SSRF & Domain whitelist validation
+    if not _is_safe_image_proxy_url(target_url):
+        raise HTTPException(status_code=400, detail="Target host is not permitted by image proxy policy.")
 
     # Local disk cache lookup (keyed by URL without query parameters)
     cache_key = hashlib.sha256(target_url.split('?')[0].encode('utf-8')).hexdigest()

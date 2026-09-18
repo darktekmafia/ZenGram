@@ -7,7 +7,7 @@ DEFAULT_DOWNLOAD_DIR = Path.home() / "Downloads" / "ZenGram"
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "ZenGram"
-    VERSION: str = "1.0.0"
+    VERSION: str = "1.0.1"
     API_PREFIX: str = "/api/v1"
     
     # Paths

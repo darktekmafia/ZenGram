@@ -237,6 +237,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=$PROJECT_DIR
+UMask=0077
 ExecStart=$PROJECT_DIR/.venv/bin/uvicorn backend.app.main:app --host $APP_HOST --port $APP_PORT
 Restart=always
 RestartSec=3
@@ -244,6 +245,13 @@ Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target default.target"
+
+# Enforce secure owner-only permissions on database, storage, and secrets
+chmod 700 "$PROJECT_DIR/storage" 2>/dev/null || true
+chmod 600 "$PROJECT_DIR"/zengram.db* 2>/dev/null || true
+mkdir -p "$HOME/.config/zengram"
+chmod 700 "$HOME/.config/zengram" 2>/dev/null || true
+chmod 600 "$HOME/.config/zengram"/jwt_secret.key 2>/dev/null || true
 
 if [ "$(id -u)" -eq 0 ]; then
     # Running as Root (e.g. Proxmox LXC Container or Dedicated Linux Server)
