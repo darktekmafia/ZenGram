@@ -55,6 +55,15 @@ async def init_db():
         except Exception:
             pass
 
+        # Performance Indexes for sub-millisecond pagination and feed sorting
+        try:
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_media_is_saved_date ON media_items(is_saved, saved_at DESC);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_media_taken_at ON media_items(taken_at DESC);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_media_user_type ON media_items(username, media_type);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_watched_unfollowed ON watched_profiles(is_unfollowed_track, username);"))
+        except Exception:
+            pass
+
 async def get_db():
     async with AsyncSessionLocal() as session:
         yield session

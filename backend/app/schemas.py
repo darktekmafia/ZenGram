@@ -92,6 +92,16 @@ class MediaItemResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+class PaginatedMediaResponse(BaseModel):
+    items: List[MediaItemResponse]
+    total_items: int
+    page: int
+    page_size: int
+    total_pages: int
+    has_next: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
 class BulkDownloadRequest(BaseModel):
     post_ids: List[str]
     category_tag: Optional[str] = "General"

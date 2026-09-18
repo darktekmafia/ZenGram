@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func
 from backend.app.database import get_db
 from backend.app.models import MediaItem, DownloadJob
-from backend.app.schemas import MediaItemResponse, BulkDownloadRequest, DownloadJobResponse
+from backend.app.schemas import MediaItemResponse, BulkDownloadRequest, DownloadJobResponse, PaginatedMediaResponse
 from backend.app.services.downloader import downloader
 
 logger = logging.getLogger("instasave.downloads")
@@ -470,23 +470,25 @@ def enrich_media_item(item: MediaItem) -> MediaItem:
         item.media_type = "CAROUSEL"
     return item
 
-@router.get("", response_model=List[MediaItemResponse])
+@router.get("", response_model=PaginatedMediaResponse)
 async def list_downloaded_content(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(36, ge=1, le=100),
     content_type: Optional[str] = Query(None),
     filter_user: Optional[str] = Query(None),
     query_search: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db)
 ):
-    stmt = select(MediaItem).where(MediaItem.is_saved == True)
+    base_where = [MediaItem.is_saved == True]
     if content_type and content_type != "ALL":
-        stmt = stmt.where(MediaItem.media_type == content_type)
+        base_where.append(MediaItem.media_type == content_type)
     if filter_user:
-        stmt = stmt.where(MediaItem.username.ilike(f"%{filter_user}%"))
+        base_where.append(MediaItem.username.ilike(f"%{filter_user}%"))
     if query_search:
         term = query_search.strip()
         clean_term = term.lstrip('@')
-        stmt = stmt.where(
+        base_where.append(
             or_(
                 MediaItem.username.ilike(f"%{clean_term}%"),
                 MediaItem.caption.ilike(f"%{term}%"),
@@ -494,13 +496,40 @@ async def list_downloaded_content(
             )
         )
     if category:
-        stmt = stmt.where(MediaItem.category_tag == category)
-    stmt = stmt.order_by(MediaItem.saved_at.desc())
+        base_where.append(MediaItem.category_tag == category)
+
+    # Fast indexed total count
+    count_stmt = select(func.count(MediaItem.id)).where(*base_where)
+    total_count_res = await db.execute(count_stmt)
+    total_items = total_count_res.scalar() or 0
+
+    # Fast indexed slice query
+    offset_val = (page - 1) * page_size
+    stmt = (
+        select(MediaItem)
+        .where(*base_where)
+        .order_by(MediaItem.saved_at.desc().nullslast(), MediaItem.id.desc())
+        .offset(offset_val)
+        .limit(page_size)
+    )
     result = await db.execute(stmt)
     items = result.scalars().all()
+    
+    # Only enrich the specific 36 items for this page
     for item in items:
         enrich_media_item(item)
-    return items
+
+    total_pages = (total_items + page_size - 1) // page_size if total_items > 0 else 1
+    has_next = page < total_pages
+
+    return PaginatedMediaResponse(
+        items=items,
+        total_items=total_items,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+        has_next=has_next
+    )
 
 @router.get("/file/{post_id}")
 async def download_file_to_client(

@@ -4,50 +4,66 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func
 from backend.app.database import get_db
 from backend.app.models import MediaItem, WatchedProfile
-from backend.app.schemas import MediaItemResponse
+from backend.app.schemas import MediaItemResponse, PaginatedMediaResponse
 from backend.app.services.scraper import InstagramScraperEngine
 
 router = APIRouter(prefix="/feed", tags=["Feed"])
 
-@router.get("", response_model=List[MediaItemResponse])
+@router.get("", response_model=PaginatedMediaResponse)
 async def get_latest_feed(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(36, ge=1, le=100),
     content_type: Optional[str] = Query("ALL", pattern="^(ALL|IMAGE|VIDEO|CAROUSEL|STORY)$"),
     filter_user: Optional[str] = None,
     query_search: Optional[str] = None,
-    limit: int = Query(200, ge=1, le=500),
     db: AsyncSession = Depends(get_db)
 ):
-    stmt = select(MediaItem)
+    base_where = []
     if content_type and content_type != "ALL":
-        stmt = stmt.where(MediaItem.media_type == content_type)
+        base_where.append(MediaItem.media_type == content_type)
         
     if filter_user:
-        stmt = stmt.where(MediaItem.username.ilike(f"%{filter_user}%"))
+        base_where.append(MediaItem.username.ilike(f"%{filter_user}%"))
     else:
         # Feed (Dashboard) should only show posts from followed accounts and NOT from tracked (unfollowed) accounts.
         followed_usernames = select(func.lower(WatchedProfile.username)).where(WatchedProfile.is_unfollowed_track == False)
         tracked_usernames = select(func.lower(WatchedProfile.username)).where(WatchedProfile.is_unfollowed_track == True)
         
-        stmt = stmt.where(
-            func.lower(MediaItem.username).in_(followed_usernames),
+        base_where.append(
+            func.lower(MediaItem.username).in_(followed_usernames)
+        )
+        base_where.append(
             func.lower(MediaItem.username).notin_(tracked_usernames)
         )
 
     if query_search:
         term = query_search.strip()
         clean_term = term.lstrip('@')
-        stmt = stmt.where(
+        base_where.append(
             or_(
                 MediaItem.username.ilike(f"%{clean_term}%"),
                 MediaItem.caption.ilike(f"%{term}%"),
                 MediaItem.caption.ilike(f"%{clean_term}%")
             )
         )
-        
-    stmt = stmt.order_by(
-        MediaItem.taken_at.desc().nullslast(),
-        MediaItem.id.desc()
-    ).limit(limit)
+
+    # Fast indexed total count query
+    count_stmt = select(func.count(MediaItem.id)).where(*base_where)
+    total_count_res = await db.execute(count_stmt)
+    total_items = total_count_res.scalar() or 0
+
+    # Slice query
+    offset_val = (page - 1) * page_size
+    stmt = (
+        select(MediaItem)
+        .where(*base_where)
+        .order_by(
+            MediaItem.taken_at.desc().nullslast(),
+            MediaItem.id.desc()
+        )
+        .offset(offset_val)
+        .limit(page_size)
+    )
     
     result = await db.execute(stmt)
     items = result.scalars().all()
@@ -56,7 +72,17 @@ async def get_latest_feed(
     for item in items:
         enrich_media_item(item)
 
-    return items
+    total_pages = (total_items + page_size - 1) // page_size if total_items > 0 else 1
+    has_next = page < total_pages
+
+    return PaginatedMediaResponse(
+        items=items,
+        total_items=total_items,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+        has_next=has_next
+    )
 
 @router.get("/carousel/{shortcode}")
 async def get_post_carousel_slides(

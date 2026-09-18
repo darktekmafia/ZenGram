@@ -43,6 +43,20 @@ export default function App() {
   const [interactiveLoginState, setInteractiveLoginState] = useState(null)
   const [isStartingBrowserLogin, setIsStartingBrowserLogin] = useState(false)
   const [displayInfo, setDisplayInfo] = useState(null)
+
+  // Pagination & Infinite Scroll State
+  const [feedPage, setFeedPage] = useState(1)
+  const [feedTotal, setFeedTotal] = useState(0)
+  const [feedHasMore, setFeedHasMore] = useState(false)
+  const [feedLoadingMore, setFeedLoadingMore] = useState(false)
+
+  const [downloadsPage, setDownloadsPage] = useState(1)
+  const [downloadsTotal, setDownloadsTotal] = useState(0)
+  const [downloadsHasMore, setDownloadsHasMore] = useState(false)
+  const [downloadsLoadingMore, setDownloadsLoadingMore] = useState(false)
+
+  const feedSentinelRef = React.useRef(null)
+  const downloadsSentinelRef = React.useRef(null)
   
   // Master Authentication & Security State
   const [authStatus, setAuthStatus] = useState(null)
@@ -107,10 +121,13 @@ export default function App() {
     }, 2500)
   }
 
-  // Fetch Feed Media
-  const fetchFeed = async () => {
+  // Fetch Feed Media (supports pagination and appending next page chunk)
+  const fetchFeed = async (page = 1, append = false) => {
     try {
-      let url = `/api/v1/feed?content_type=${contentType}`
+      if (append) {
+        setFeedLoadingMore(true)
+      }
+      let url = `/api/v1/feed?page=${page}&page_size=36&content_type=${contentType}`
       if (selectedUserFilter) {
         url += `&filter_user=${encodeURIComponent(selectedUserFilter)}`
       }
@@ -120,17 +137,36 @@ export default function App() {
       const res = await fetch(url)
       if (res.ok) {
         const data = await res.json()
-        setMediaItems(data)
+        const items = data.items || (Array.isArray(data) ? data : [])
+        if (append) {
+          setMediaItems((prev) => {
+            const existingIds = new Set(prev.map((i) => i.id || i.post_id))
+            const newUnique = items.filter((i) => !existingIds.has(i.id || i.post_id))
+            return [...prev, ...newUnique]
+          })
+        } else {
+          setMediaItems(items)
+        }
+        setFeedPage(data.page || page)
+        setFeedTotal(data.total_items ?? items.length)
+        setFeedHasMore(data.has_next ?? false)
       }
     } catch (err) {
       console.error('Error fetching feed:', err)
+    } finally {
+      if (append) {
+        setFeedLoadingMore(false)
+      }
     }
   }
 
-  // Fetch Downloaded Content
-  const fetchDownloadedContent = async () => {
+  // Fetch Downloaded Content (supports pagination and appending next page chunk)
+  const fetchDownloadedContent = async (page = 1, append = false) => {
     try {
-      let url = `/api/v1/downloads?content_type=${contentType}`
+      if (append) {
+        setDownloadsLoadingMore(true)
+      }
+      let url = `/api/v1/downloads?page=${page}&page_size=36&content_type=${contentType}`
       if (selectedUserFilter) {
         url += `&filter_user=${encodeURIComponent(selectedUserFilter)}`
       }
@@ -140,10 +176,26 @@ export default function App() {
       const res = await fetch(url)
       if (res.ok) {
         const data = await res.json()
-        setDownloadedItems(data)
+        const items = data.items || (Array.isArray(data) ? data : [])
+        if (append) {
+          setDownloadedItems((prev) => {
+            const existingIds = new Set(prev.map((i) => i.id || i.post_id))
+            const newUnique = items.filter((i) => !existingIds.has(i.id || i.post_id))
+            return [...prev, ...newUnique]
+          })
+        } else {
+          setDownloadedItems(items)
+        }
+        setDownloadsPage(data.page || page)
+        setDownloadsTotal(data.total_items ?? items.length)
+        setDownloadsHasMore(data.has_next ?? false)
       }
     } catch (err) {
       console.error('Error fetching downloaded content:', err)
+    } finally {
+      if (append) {
+        setDownloadsLoadingMore(false)
+      }
     }
   }
 
@@ -303,8 +355,8 @@ export default function App() {
 
   useEffect(() => {
     if (!authStatus?.is_setup_required && (authStatus?.is_authenticated || !authStatus?.auth_enabled)) {
-      fetchFeed()
-      fetchDownloadedContent()
+      fetchFeed(1, false)
+      fetchDownloadedContent(1, false)
       fetchProfiles()
       fetchUserSession()
       fetchRateLimit()
@@ -317,6 +369,34 @@ export default function App() {
       return () => clearInterval(interval)
     }
   }, [authStatus, contentType, searchQuery, selectedUserFilter, activeTab])
+
+  // Infinite Scroll Observer for Dashboard Feed
+  useEffect(() => {
+    if (activeTab !== 'dashboard' || !feedHasMore || feedLoadingMore) return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        fetchFeed(feedPage + 1, true)
+      }
+    }, { rootMargin: '300px' })
+    if (feedSentinelRef.current) {
+      observer.observe(feedSentinelRef.current)
+    }
+    return () => observer.disconnect()
+  }, [activeTab, feedHasMore, feedLoadingMore, feedPage, contentType, selectedUserFilter, searchQuery])
+
+  // Infinite Scroll Observer for Downloaded Content
+  useEffect(() => {
+    if (activeTab !== 'downloads' || !downloadsHasMore || downloadsLoadingMore) return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        fetchDownloadedContent(downloadsPage + 1, true)
+      }
+    }, { rootMargin: '300px' })
+    if (downloadsSentinelRef.current) {
+      observer.observe(downloadsSentinelRef.current)
+    }
+    return () => observer.disconnect()
+  }, [activeTab, downloadsHasMore, downloadsLoadingMore, downloadsPage, contentType, selectedUserFilter, searchQuery])
 
   const handleLogout = async () => {
     try {
@@ -866,10 +946,36 @@ export default function App() {
 
           {activeTab === 'dashboard' && (
             mediaItems.length > 0 ? (
-              <div className="media-grid">
-                {mediaItems.map((item) => (
-                  <MediaCard key={item.id} item={item} onSaveMedia={handleSaveMedia} />
-                ))}
+              <div>
+                <div className="media-grid">
+                  {mediaItems.map((item) => (
+                    <MediaCard key={item.id} item={item} onSaveMedia={handleSaveMedia} />
+                  ))}
+                </div>
+
+                {/* Infinite Scroll Sentinel & Load More Controls */}
+                {feedHasMore && (
+                  <div className="pagination-load-more-container">
+                    <div ref={feedSentinelRef} style={{ height: '10px', width: '100%' }} />
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      style={{ padding: '8px 20px', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                      onClick={() => fetchFeed(feedPage + 1, true)}
+                      disabled={feedLoadingMore}
+                    >
+                      {feedLoadingMore ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                      <span>{feedLoadingMore ? 'Loading More Posts...' : `Load More Posts (${mediaItems.length} of ${feedTotal.toLocaleString()})`}</span>
+                    </button>
+                  </div>
+                )}
+
+                {!feedHasMore && mediaItems.length > 0 && (
+                  <div className="pagination-end-badge">
+                    <CheckCircle2 size={14} style={{ color: '#10b981' }} />
+                    <span>You've reached the end of your feed ({feedTotal.toLocaleString()} posts)</span>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="modal-card" style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-muted)', margin: '30px auto', maxWidth: '560px' }}>
@@ -1004,10 +1110,36 @@ export default function App() {
                   </p>
                 </div>
               ) : (
-                <div className="media-grid">
-                  {downloadedItems.map((item) => (
-                    <MediaCard key={item.id} item={item} onSaveMedia={handleSaveMedia} onDeleteMedia={handleDeleteMedia} />
-                  ))}
+                <div>
+                  <div className="media-grid">
+                    {downloadedItems.map((item) => (
+                      <MediaCard key={item.id} item={item} onSaveMedia={handleSaveMedia} onDeleteMedia={handleDeleteMedia} />
+                    ))}
+                  </div>
+
+                  {/* Infinite Scroll Sentinel & Load More Controls */}
+                  {downloadsHasMore && (
+                    <div className="pagination-load-more-container">
+                      <div ref={downloadsSentinelRef} style={{ height: '10px', width: '100%' }} />
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ padding: '8px 20px', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                        onClick={() => fetchDownloadedContent(downloadsPage + 1, true)}
+                        disabled={downloadsLoadingMore}
+                      >
+                        {downloadsLoadingMore ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                        <span>{downloadsLoadingMore ? 'Loading More Saved Posts...' : `Load More Downloads (${downloadedItems.length} of ${downloadsTotal.toLocaleString()})`}</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {!downloadsHasMore && downloadedItems.length > 0 && (
+                    <div className="pagination-end-badge">
+                      <CheckCircle2 size={14} style={{ color: '#10b981' }} />
+                      <span>All {downloadsTotal.toLocaleString()} saved posts loaded</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
