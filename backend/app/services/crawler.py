@@ -36,7 +36,7 @@ class FeedCrawlerService:
             "last_error": self._last_error
         }
 
-    async def start_crawl(self, max_posts_per_account: int = 15) -> bool:
+    async def start_crawl(self, max_posts_per_account: Optional[int] = None) -> bool:
         if self._is_running:
             logger.info("Feed crawl already in progress. Skipping trigger.")
             return False
@@ -55,7 +55,7 @@ class FeedCrawlerService:
             self._status_message = "Stopping feed crawl..."
             logger.info("Feed crawl stop requested.")
 
-    async def _run_crawl(self, max_posts_per_account: int):
+    async def _run_crawl(self, max_posts_per_account: Optional[int]):
         logger.info("Starting background feed crawl execution.")
         try:
             async with AsyncSessionLocal() as db:
@@ -74,8 +74,11 @@ class FeedCrawlerService:
                 settings_res = await db.execute(select(AppSettings).where(AppSettings.id == 1))
                 app_settings = settings_res.scalars().first()
                 base_delay = app_settings.rate_limit_delay_seconds if app_settings else 3.0
-                configured_max_posts = app_settings.max_posts_per_fetch if app_settings else max_posts_per_account
-                fetch_limit = min(max_posts_per_account, configured_max_posts)
+                configured_max_posts = app_settings.max_posts_per_fetch if (app_settings and app_settings.max_posts_per_fetch is not None) else 0
+                if max_posts_per_account is not None:
+                    fetch_limit = max_posts_per_account
+                else:
+                    fetch_limit = configured_max_posts
 
                 # 3. Fetch followed / watched profiles enabled for sync
                 prof_stmt = (

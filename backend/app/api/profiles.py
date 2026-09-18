@@ -229,7 +229,7 @@ async def remove_watched_profile(username: str, db: AsyncSession = Depends(get_d
     return {"message": f"Profile @{clean_username} removed from watched accounts"}
 
 @router.get("/{username}/media", response_model=List[MediaItemResponse])
-async def fetch_user_media(username: str, limit: int = Query(200, ge=1, le=500), db: AsyncSession = Depends(get_db)):
+async def fetch_user_media(username: str, limit: int = Query(0, ge=0, le=5000), db: AsyncSession = Depends(get_db)):
     username = username.rstrip("/").lstrip("@").strip()
     scraper = await get_active_scraper(db)
 

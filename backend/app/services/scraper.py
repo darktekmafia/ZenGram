@@ -172,57 +172,51 @@ class InstagramScraperEngine:
                     args=PLAYWRIGHT_CHROMIUM_ARGS
                 )
                 context = await browser.new_context(
-                    viewport={"width": 1280, "height": 800},
+                    viewport={"width": 1280, "height": 900},
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+                    locale="en-US",
                     device_scale_factor=1
                 )
                 if self.session_cookie and self.session_cookie != "dummy_session_cookie":
                     cookies_dict = parse_instagram_cookies(self.session_cookie)
                     user_id = extract_user_id_from_cookies(cookies_dict, self.session_cookie)
                     playwright_cookies = []
-                    if user_id:
+                    for k, v in cookies_dict.items():
+                        playwright_cookies.append({
+                            'name': k,
+                            'value': str(v).strip('\"').strip('\''),
+                            'domain': '.instagram.com',
+                            'path': '/',
+                            'secure': True
+                        })
+                    if 'sessionid' not in cookies_dict and self.session_cookie:
+                        playwright_cookies.append({
+                            'name': 'sessionid',
+                            'value': self.session_cookie.strip('\"').strip('\''),
+                            'domain': '.instagram.com',
+                            'path': '/',
+                            'secure': True
+                        })
+                    if user_id and 'ds_user_id' not in cookies_dict:
                         playwright_cookies.append({
                             'name': 'ds_user_id',
                             'value': str(user_id),
                             'domain': '.instagram.com',
-                            'path': '/'
+                            'path': '/',
+                            'secure': True
                         })
-                    if 'sessionid' not in cookies_dict:
-                        playwright_cookies.append({
-                            'name': 'sessionid',
-                            'value': self.session_cookie.strip(),
-                            'domain': '.instagram.com',
-                            'path': '/'
-                        })
-                    for k, v in cookies_dict.items():
-                        if k not in ('ds_user_id', 'sessionid'):
-                            playwright_cookies.append({
-                                'name': k,
-                                'value': str(v),
-                                'domain': '.instagram.com',
-                                'path': '/'
-                            })
                     await context.add_cookies(playwright_cookies)
                 
                 page = await context.new_page()
 
-                # Block video decoding and webfonts during link scraping to drastically reduce CPU and RAM usage
-                async def handle_route(route):
-                    try:
-                        req = route.request
-                        if req.resource_type in ["media", "font"]:
-                            await route.abort()
-                        else:
-                            await route.continue_()
-                    except Exception:
-                        pass
-
-                await page.route("**/*", handle_route)
-
                 try:
-                    await page.goto(f"https://www.instagram.com/{username}/", wait_until="domcontentloaded", timeout=15000)
-                    await page.wait_for_timeout(1000)
-                except Exception as e:
-                    logger.warning(f"Initial navigation for {username} reached timeout: {e}")
+                    await page.goto(f"https://www.instagram.com/{username}/", wait_until="networkidle", timeout=25000)
+                except Exception:
+                    try:
+                        await page.goto(f"https://www.instagram.com/{username}/", wait_until="domcontentloaded", timeout=15000)
+                        await page.wait_for_timeout(2000)
+                    except Exception as e:
+                        logger.warning(f"Initial navigation for {username} reached timeout: {e}")
                 
                 profile_pic = None
                 try:
@@ -271,36 +265,37 @@ class InstagramScraperEngine:
                     except Exception as e:
                         logger.warning(f"Error extracting profile avatar for {username}: {e}")
                 
-                seen_codes = set()
-                posts = []
-                no_new_cycles = 0
-
+                seen_map = {}
                 is_uncapped = (limit <= 0)
                 effective_limit = 999999 if is_uncapped else limit
                 max_scrolls = 600 if is_uncapped else max(60, (limit // 6) + 20)
-                max_empty_cycles = 8 if is_uncapped else 6
+                max_empty_cycles = 8
 
                 urls_to_visit = [f"https://www.instagram.com/{username}/", f"https://www.instagram.com/{username}/reels/"]
                 for page_url in urls_to_visit:
-                    if len(posts) >= effective_limit:
+                    if len(seen_map) >= effective_limit:
                         break
                     try:
                         if page_url != f"https://www.instagram.com/{username}/":
                             if progress_callback:
                                 try:
                                     if asyncio.iscoroutinefunction(progress_callback):
-                                        await progress_callback(f"Switching to reels tab for @{username}...")
+                                        await progress_callback(f"Checking reels tab for @{username}...")
                                     else:
-                                        progress_callback(f"Switching to reels tab for @{username}...")
+                                        progress_callback(f"Checking reels tab for @{username}...")
                                 except Exception:
                                     pass
-                            await page.goto(page_url, wait_until="domcontentloaded", timeout=15000)
-                            await page.wait_for_timeout(1200)
-                            no_new_cycles = 0
+                            try:
+                                await page.goto(page_url, wait_until="networkidle", timeout=20000)
+                            except Exception:
+                                await page.goto(page_url, wait_until="domcontentloaded", timeout=15000)
+                                await page.wait_for_timeout(2000)
                     except Exception:
                         pass
 
-                    for i in range(max_scrolls):
+                    prev_total = len(seen_map)
+                    consecutive_empty = 0
+                    for step in range(1, max_scrolls):
                         batch = await page.evaluate(r'''() => {
                             const results = [];
                             const links = Array.from(document.querySelectorAll('a[href*="/p/"], a[href*="/reel/"], a[href*="/reels/"], a[href*="/tv/"]'));
@@ -346,13 +341,10 @@ class InstagramScraperEngine:
                             return results;
                         }''')
 
-                        new_found_in_cycle = 0
                         for item in batch:
                             code = item['shortcode']
-                            if code not in seen_codes:
-                                seen_codes.add(code)
-                                new_found_in_cycle += 1
-                                posts.append({
+                            if code not in seen_map:
+                                seen_map[code] = {
                                     "post_id": f"ig_{code}",
                                     "shortcode": code,
                                     "username": username,
@@ -364,36 +356,39 @@ class InstagramScraperEngine:
                                     "likes_count": 0,
                                     "comments_count": 0,
                                     "taken_at": extract_timestamp_from_shortcode(code) or datetime.datetime.utcnow()
-                                })
+                                }
 
-                        if new_found_in_cycle > 0 and progress_callback:
-                            if len(posts) % 15 == 0 or len(posts) <= 30:
+                        current_total = len(seen_map)
+                        if current_total > prev_total:
+                            consecutive_empty = 0
+                            if progress_callback:
                                 try:
-                                    msg = f"Discovered {len(posts)} posts/reels so far (scroll cycle {i+1})..."
+                                    msg = f"Discovered {current_total} posts/reels so far (step {step})..."
                                     if asyncio.iscoroutinefunction(progress_callback):
                                         await progress_callback(msg)
                                     else:
                                         progress_callback(msg)
                                 except Exception:
                                     pass
+                        else:
+                            consecutive_empty += 1
 
-                        if len(posts) >= effective_limit:
+                        prev_total = current_total
+
+                        if len(seen_map) >= effective_limit:
                             break
 
-                        if new_found_in_cycle == 0:
-                            no_new_cycles += 1
-                            if no_new_cycles >= max_empty_cycles:
-                                break
-                        else:
-                            no_new_cycles = 0
+                        if consecutive_empty >= max_empty_cycles:
+                            break
 
-                        # Multi-action deep scroll: mouse wheel + page down + scrollHeight
+                        # Multi-action deep scroll: mouse wheel + page down + scrollBy
                         await page.mouse.wheel(0, 3000)
                         await page.keyboard.press('PageDown')
-                        await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-                        await page.wait_for_timeout(1400)
+                        await page.evaluate('window.scrollBy(0, 1500)')
+                        await page.wait_for_timeout(2000)
 
                 await browser.close()
+                posts = list(seen_map.values())
                 return profile_pic, posts
         except Exception as e:
             logger.error(f"Playwright fetch error for {username}: {e}")
@@ -504,8 +499,8 @@ class InstagramScraperEngine:
                                 "comments_count": node.get("edge_media_to_comment", {}).get("count", 0),
                                 "taken_at": taken_dt or datetime.datetime.utcnow(),
                             })
-                        if limit > 0 and len(api_posts) >= limit:
-                            return api_posts
+                        if 0 < limit <= len(api_posts):
+                            return api_posts[:limit]
             except Exception as e:
                 logger.error(f"Error fetching posts for {username}: {e}")
 
