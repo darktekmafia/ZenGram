@@ -349,8 +349,16 @@ printf "${CLR_GREEN}[✓] Production frontend bundle compiled successfully in 'f
 printf "\n${CLR_PURPLE}${CLR_BOLD}[5/6] Configuring Desktop shortcuts and application icons...${CLR_RESET}\n"
 
 if [ "$SKIP_DESKTOP" -eq 0 ] && [ -n "$DISPLAY" -o -d "$HOME/Desktop" -o -d "$HOME/.local/share/applications" ]; then
-    mkdir -p "$HOME/Desktop" "$HOME/.local/share/applications" 2>/dev/null || true
+    mkdir -p "$HOME/Desktop" "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/scalable/apps" 2>/dev/null || true
     
+    # Remove legacy InstaSave shortcuts
+    rm -f "$HOME/.local/share/applications/instasave.desktop" "$HOME/Desktop/InstaSave.desktop" "$HOME/Desktop/instasave.desktop" 2>/dev/null || true
+
+    # Install scalable application icon
+    if [ -f "$PROJECT_DIR/assets/zengram.svg" ]; then
+        cp "$PROJECT_DIR/assets/zengram.svg" "$HOME/.local/share/icons/hicolor/scalable/apps/zengram.svg" 2>/dev/null || true
+    fi
+
     DESKTOP_ENTRY="$HOME/.local/share/applications/zengram.desktop"
     cat <<EOF > "$DESKTOP_ENTRY"
 [Desktop Entry]
@@ -373,6 +381,10 @@ EOF
         chmod +x "$HOME/Desktop/ZenGram.desktop" 2>/dev/null || true
         printf "${CLR_GREEN}[✓] Desktop launcher shortcut created at ~/Desktop/ZenGram.desktop${CLR_RESET}\n"
     fi
+
+    # Update desktop and icon databases
+    update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+    gtk-update-icon-cache -f "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 else
     printf "${CLR_GRAY}[*] Headless / Container environment detected. Skipped Desktop GUI launcher.${CLR_RESET}\n"
 fi
@@ -391,13 +403,15 @@ mkdir -p "$HOME/.config/zengram"
 chmod 700 "$HOME/.config/zengram" 2>/dev/null || true
 chmod 600 "$HOME/.config/zengram"/jwt_secret.key 2>/dev/null || true
 
-# Stop any legacy service names
+# Stop and clean up any legacy service files
 if [ "$IS_ROOT" -eq 1 ]; then
     systemctl stop instasave.service 2>/dev/null || true
     systemctl disable instasave.service 2>/dev/null || true
+    rm -f /etc/systemd/system/instasave.service 2>/dev/null || true
 else
     systemctl --user stop instasave.service 2>/dev/null || true
     systemctl --user disable instasave.service 2>/dev/null || true
+    rm -f "$HOME/.config/systemd/user/instasave.service" 2>/dev/null || true
 fi
 
 if [ "$IS_ROOT" -eq 1 ]; then
