@@ -188,9 +188,6 @@ export default function App() {
           })
         } else {
           setMediaItems(items)
-          if (paginationMode === 'pages') {
-            scrollToContentTop('smooth')
-          }
         }
         setFeedPage(data.page || page)
         setFeedTotal(data.total_items ?? items.length)
@@ -233,9 +230,6 @@ export default function App() {
           })
         } else {
           setDownloadedItems(items)
-          if (paginationMode === 'pages') {
-            scrollToContentTop('smooth')
-          }
         }
         setDownloadsPage(data.page || page)
         setDownloadsTotal(data.total_items ?? items.length)
@@ -1387,11 +1381,15 @@ export default function App() {
                     totalPages={feedTotalPages}
                     totalItems={feedTotal}
                     pageSize={pageSize}
-                    onPageChange={(p) => fetchFeed(p, false)}
+                    onPageChange={(p) => {
+                      fetchFeed(p, false)
+                      scrollToContentTop('smooth')
+                    }}
                     onPageSizeChange={(sz) => {
                       setPageSize(sz)
                       setPageSizeInput(sz)
                       fetchFeed(1, false, sz)
+                      scrollToContentTop('smooth')
                     }}
                     loading={feedLoadingMore}
                   />
@@ -1575,11 +1573,15 @@ export default function App() {
                       totalPages={downloadsTotalPages}
                       totalItems={downloadsTotal}
                       pageSize={pageSize}
-                      onPageChange={(p) => fetchDownloadedContent(p, false)}
+                      onPageChange={(p) => {
+                        fetchDownloadedContent(p, false)
+                        scrollToContentTop('smooth')
+                      }}
                       onPageSizeChange={(sz) => {
                         setPageSize(sz)
                         setPageSizeInput(sz)
                         fetchDownloadedContent(1, false, sz)
+                        scrollToContentTop('smooth')
                       }}
                       loading={downloadsLoadingMore}
                     />
