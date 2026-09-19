@@ -349,15 +349,34 @@ printf "${CLR_GREEN}[✓] Production frontend bundle compiled successfully in 'f
 printf "\n${CLR_PURPLE}${CLR_BOLD}[5/6] Configuring Desktop shortcuts and application icons...${CLR_RESET}\n"
 
 if [ "$SKIP_DESKTOP" -eq 0 ] && [ -n "$DISPLAY" -o -d "$HOME/Desktop" -o -d "$HOME/.local/share/applications" ]; then
-    mkdir -p "$HOME/Desktop" "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/scalable/apps" 2>/dev/null || true
+    mkdir -p "$HOME/Desktop" "$HOME/.local/share/applications" "$HOME/.local/share/pixmaps" "$HOME/.local/share/icons/hicolor/scalable/apps" 2>/dev/null || true
     
     # Remove legacy InstaSave shortcuts
     rm -f "$HOME/.local/share/applications/instasave.desktop" "$HOME/Desktop/InstaSave.desktop" "$HOME/Desktop/instasave.desktop" 2>/dev/null || true
 
-    # Install scalable application icon
+    # Install scalable and multi-resolution PNG application icons
     if [ -f "$PROJECT_DIR/assets/zengram.svg" ]; then
         cp "$PROJECT_DIR/assets/zengram.svg" "$HOME/.local/share/icons/hicolor/scalable/apps/zengram.svg" 2>/dev/null || true
+        cp "$PROJECT_DIR/assets/zengram.svg" "$HOME/.local/share/pixmaps/zengram.svg" 2>/dev/null || true
     fi
+
+    for size in 16 24 32 48 64 96 128 256 512; do
+        if [ -f "$PROJECT_DIR/assets/icons/zengram-${size}.png" ]; then
+            mkdir -p "$HOME/.local/share/icons/hicolor/${size}x${size}/apps" 2>/dev/null || true
+            cp "$PROJECT_DIR/assets/icons/zengram-${size}.png" "$HOME/.local/share/icons/hicolor/${size}x${size}/apps/zengram.png" 2>/dev/null || true
+            chmod 644 "$HOME/.local/share/icons/hicolor/${size}x${size}/apps/zengram.png" 2>/dev/null || true
+        fi
+    done
+
+    mkdir -p "$HOME/.local/share/zengram" 2>/dev/null || true
+    if [ -f "$PROJECT_DIR/assets/icons/zengram-512.png" ]; then
+        cp "$PROJECT_DIR/assets/icons/zengram-512.png" "$HOME/.local/share/zengram/zengram.png" 2>/dev/null || true
+        cp "$PROJECT_DIR/assets/icons/zengram-512.png" "$HOME/.local/share/icons/zengram.png" 2>/dev/null || true
+        cp "$PROJECT_DIR/assets/icons/zengram-512.png" "$HOME/.local/share/pixmaps/zengram.png" 2>/dev/null || true
+    fi
+
+    # Ensure permissions for icons
+    chmod -R u=rwX,go=rX "$HOME/.local/share/icons" "$HOME/.local/share/pixmaps" "$HOME/.local/share/zengram" 2>/dev/null || true
 
     DESKTOP_ENTRY="$HOME/.local/share/applications/zengram.desktop"
     cat <<EOF > "$DESKTOP_ENTRY"
@@ -368,9 +387,9 @@ Name=ZenGram
 GenericName=Instagram Content Archiver & Feed Viewer
 Comment=Local Web UI for browsing, archiving, and saving Instagram media
 Exec=xdg-open http://localhost:$APP_PORT
-Icon=$PROJECT_DIR/assets/zengram.svg
+Icon=$HOME/.local/share/zengram/zengram.png
 Terminal=false
-Categories=Network;FileTransfer;Utility;
+Categories=Network;FileTransfer;
 Keywords=Instagram;Downloader;Saver;Archive;Media;ZenGram;
 StartupNotify=true
 EOF
@@ -384,7 +403,8 @@ EOF
 
     # Update desktop and icon databases
     update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
-    gtk-update-icon-cache -f "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+    gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+    touch "$DESKTOP_ENTRY" "$HOME/Desktop/ZenGram.desktop" 2>/dev/null || true
 else
     printf "${CLR_GRAY}[*] Headless / Container environment detected. Skipped Desktop GUI launcher.${CLR_RESET}\n"
 fi

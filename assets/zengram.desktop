@@ -7,6 +7,6 @@ Comment=Local Web UI for browsing, archiving, and saving Instagram media
 Exec=xdg-open http://localhost:8484
 Icon=zengram
 Terminal=false
-Categories=Network;FileTransfer;Utility;
+Categories=Network;FileTransfer;
 Keywords=Instagram;Downloader;Saver;Archive;Media;ZenGram;
 StartupNotify=true
